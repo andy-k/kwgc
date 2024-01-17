@@ -5,7 +5,7 @@ remake: clean all
 clean:
 	rm -fv kwgc kwgdbg
 
-CFLAGS=-std=c17 -O3 -Wall -Wextra -Wsign-conversion -pedantic
+CFLAGS=-std=c17 -O3 -Wall -Wextra -Wsign-conversion -pedantic -march=native
 
 kwgc: kwgc.c
 	$(CC) $(CFLAGS) -o $@ $^
