@@ -62,14 +62,14 @@ static inline void *realloc_or_die(void *ptr, size_t size) {
 
 // vec helpers
 
-struct vec {
+typedef struct {
   uint8_t *ptr;
   size_t len, cap, elt_size;
-};
+} vec;
 
 // vec v = vec_new(sizeof(T));
-static inline struct vec vec_new(size_t elt_size) {
-  return (struct vec){
+static inline vec vec_new(size_t elt_size) {
+  return (vec){
     .ptr = NULL,
     .len = 0,
     .cap = 0,
@@ -78,7 +78,7 @@ static inline struct vec vec_new(size_t elt_size) {
 }
 
 // vec_ensure_cap_exact(&vec, new_cap);
-static inline void vec_ensure_cap_exact(struct vec self[static 1], size_t new_capacity) {
+static inline void vec_ensure_cap_exact(vec self[static 1], size_t new_capacity) {
   if (self->cap < new_capacity) {
     self->ptr = realloc_or_die(self->ptr, new_capacity * self->elt_size);
     self->cap = new_capacity;
@@ -86,7 +86,7 @@ static inline void vec_ensure_cap_exact(struct vec self[static 1], size_t new_ca
 }
 
 // vec_ensure_cap(&vec, min_cap);
-static inline void vec_ensure_cap(struct vec self[static 1], size_t min_capacity) {
+static inline void vec_ensure_cap(vec self[static 1], size_t min_capacity) {
   if (self->cap < min_capacity) {
     size_t new_capacity = min_capacity * 2; // assume no overflow.
     self->ptr = realloc_or_die(self->ptr, new_capacity * self->elt_size);
@@ -95,7 +95,7 @@ static inline void vec_ensure_cap(struct vec self[static 1], size_t min_capacity
 }
 
 // vec_free(&vec);
-static inline void vec_free(struct vec self[static 1]) {
+static inline void vec_free(vec self[static 1]) {
   free(self->ptr);
   self->ptr = NULL;
   self->len = 0;
@@ -103,12 +103,12 @@ static inline void vec_free(struct vec self[static 1]) {
 }
 
 // *(T *)vec_get(&vec, i)
-static inline void *vec_get(struct vec self[static 1], size_t i) {
+static inline void *vec_get(vec self[static 1], size_t i) {
   return self->ptr + (i * self->elt_size);
 }
 
 // vec_push(&vec, &elt);
-static inline void vec_push(struct vec self[static 1], void *elt) {
+static inline void vec_push(vec self[static 1], void *elt) {
   vec_ensure_cap(self, (self->len + 1) * self->elt_size);
   memcpy(vec_get(self, self->len), elt, self->elt_size);
   ++self->len;
@@ -116,22 +116,22 @@ static inline void vec_push(struct vec self[static 1], void *elt) {
 
 // kurnia hashmap
 
-struct khm {
-  struct vec occupieds; // vec<bool>
-  struct vec hashes; // vec<uint64_t>
-  struct vec keys; // vec<K>
-  struct vec values; // vec<V>
+typedef struct {
+  vec occupieds; // vec<bool>
+  vec hashes; // vec<uint64_t>
+  vec keys; // vec<K>
+  vec values; // vec<V>
   size_t len;
   size_t last_probe;
-};
+} khm;
 
 // khm h = khm_new_cap(sizeof(K), sizeof(V), cap);
-static inline struct khm khm_new_cap(size_t key_size, size_t value_size, size_t cap) {
+static inline khm khm_new_cap(size_t key_size, size_t value_size, size_t cap) {
   if (cap != (cap & -cap) || (cap && cap < 16)) { // 0 or power of two of at least 16.
     fprintf(stderr, "invalid cap=%zu\n", cap);
     abort();
   }
-  struct khm ret = {
+  khm ret = {
     .occupieds = vec_new(sizeof(bool)),
     .hashes = vec_new(sizeof(uint64_t)),
     .keys = vec_new(key_size),
@@ -152,12 +152,12 @@ static inline struct khm khm_new_cap(size_t key_size, size_t value_size, size_t 
 }
 
 // khm h = khm_new(sizeof(K), sizeof(V));
-static inline struct khm khm_new(size_t key_size, size_t value_size) {
+static inline khm khm_new(size_t key_size, size_t value_size) {
   return khm_new_cap(key_size, value_size, 16);
 }
 
 // khm_free(&khm);
-static inline void khm_free(struct khm self[static 1]) {
+static inline void khm_free(khm self[static 1]) {
   vec_free(&self->values);
   vec_free(&self->keys);
   vec_free(&self->hashes);
@@ -167,7 +167,7 @@ static inline void khm_free(struct khm self[static 1]) {
 
 // size_t idx = khm_locate(&khm, &k, hshk(pk), eqlk);
 // returns index where the value is or would end up, or (size_t)-1 if full.
-static inline size_t khm_locate(struct khm self[static 1], void *pk, uint64_t hsh, bool (*eqlk)(void *, void *)) {
+static inline size_t khm_locate(khm self[static 1], void *pk, uint64_t hsh, bool (*eqlk)(void *, void *)) {
   if (!self->occupieds.len) return (size_t)-1;
   size_t mask = self->occupieds.len - 1; // always power of two.
   size_t bucket = hsh & mask;
@@ -181,7 +181,7 @@ static inline size_t khm_locate(struct khm self[static 1], void *pk, uint64_t hs
 }
 
 // V *v = khm_get(&khm, &k, hshk, eqlk);
-static inline void *khm_get(struct khm self[static 1], void *pk, uint64_t (*hshk)(void *), bool (*eqlk)(void *, void *)) {
+static inline void *khm_get(khm self[static 1], void *pk, uint64_t (*hshk)(void *), bool (*eqlk)(void *, void *)) {
   uint64_t hsh = hshk(pk);
   size_t probe = khm_locate(self, pk, hsh, eqlk);
   self->last_probe = probe;
@@ -191,14 +191,14 @@ static inline void *khm_get(struct khm self[static 1], void *pk, uint64_t (*hshk
 }
 
 // bool inserted = khm_set(&khm, &k, &v, hshk, eqlk);
-static inline bool khm_set(struct khm self[static 1], void *pk, void *pv, uint64_t (*hshk)(void *), bool (*eqlk)(void *, void *)) {
+static inline bool khm_set(khm self[static 1], void *pk, void *pv, uint64_t (*hshk)(void *), bool (*eqlk)(void *, void *)) {
   uint64_t hsh = hshk(pk);
   size_t probe = khm_locate(self, pk, hsh, eqlk);
   if (probe == (size_t)-1) {
     // no space. grow.
     size_t next_cap = self->occupieds.len * 2; // ignore overflow.
     if (next_cap < 16) next_cap = 16;
-    struct khm old = *self;
+    khm old = *self;
     // rehash.
     self->occupieds.ptr = NULL;
     self->hashes.ptr = NULL;
@@ -241,17 +241,17 @@ static inline bool khm_set(struct khm self[static 1], void *pk, void *pv, uint64
 
 // tile-label-specific
 
-struct tile {
+typedef struct {
   char *label;
   char *blank_label;
-};
+} tile;
 
-struct parsed_tile {
+typedef struct {
   size_t len;
   uint8_t index;
-};
+} parsed_tile;
 
-struct tile catalan_tileset[] = {
+tile catalan_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "B", .blank_label = "b" }, // 2
@@ -281,129 +281,129 @@ struct tile catalan_tileset[] = {
   { .label = "Z", .blank_label = "z" }, // 26
 };
 
-struct parsed_tile catalan_tileset_parse(uint8_t *ptr) {
+parsed_tile catalan_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // B
+    return (parsed_tile){ .len = 1, .index = 2 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // C
+    return (parsed_tile){ .len = 1, .index = 3 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // D
+    return (parsed_tile){ .len = 1, .index = 5 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // E
+    return (parsed_tile){ .len = 1, .index = 6 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // F
+    return (parsed_tile){ .len = 1, .index = 7 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // G
+    return (parsed_tile){ .len = 1, .index = 8 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // H
+    return (parsed_tile){ .len = 1, .index = 9 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // I
+    return (parsed_tile){ .len = 1, .index = 10 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // J
+    return (parsed_tile){ .len = 1, .index = 11 }; // J
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // K
+    return (parsed_tile){ .len = 1, .index = 4 }; // K
   case 0x4c:
-    if (ptr[1] == 0xc2 && ptr[2] == 0xb7 && ptr[3] == 0x4c) return (struct parsed_tile){ .len = 4, .index = 13 }; // L·L
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // L
+    if (ptr[1] == 0xc2 && ptr[2] == 0xb7 && ptr[3] == 0x4c) return (parsed_tile){ .len = 4, .index = 13 }; // L·L
+    return (parsed_tile){ .len = 1, .index = 12 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // M
+    return (parsed_tile){ .len = 1, .index = 14 }; // M
   case 0x4e:
-    if (ptr[1] == 0x59) return (struct parsed_tile){ .len = 2, .index = 16 }; // NY
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // N
+    if (ptr[1] == 0x59) return (parsed_tile){ .len = 2, .index = 16 }; // NY
+    return (parsed_tile){ .len = 1, .index = 15 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // O
+    return (parsed_tile){ .len = 1, .index = 17 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // P
+    return (parsed_tile){ .len = 1, .index = 18 }; // P
   case 0x51:
-    if (ptr[1] == 0x55) return (struct parsed_tile){ .len = 2, .index = 19 }; // QU
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // Q
+    if (ptr[1] == 0x55) return (parsed_tile){ .len = 2, .index = 19 }; // QU
+    return (parsed_tile){ .len = 1, .index = 19 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // R
+    return (parsed_tile){ .len = 1, .index = 20 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // S
+    return (parsed_tile){ .len = 1, .index = 21 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // T
+    return (parsed_tile){ .len = 1, .index = 22 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // U
+    return (parsed_tile){ .len = 1, .index = 23 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // V
+    return (parsed_tile){ .len = 1, .index = 24 }; // V
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // W
+    return (parsed_tile){ .len = 1, .index = 13 }; // W
   case 0x58:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // X
+    return (parsed_tile){ .len = 1, .index = 25 }; // X
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // Y
+    return (parsed_tile){ .len = 1, .index = 16 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // Z
+    return (parsed_tile){ .len = 1, .index = 26 }; // Z
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // b
+    return (parsed_tile){ .len = 1, .index = 2 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // c
+    return (parsed_tile){ .len = 1, .index = 3 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // d
+    return (parsed_tile){ .len = 1, .index = 5 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // e
+    return (parsed_tile){ .len = 1, .index = 6 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // f
+    return (parsed_tile){ .len = 1, .index = 7 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // g
+    return (parsed_tile){ .len = 1, .index = 8 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // h
+    return (parsed_tile){ .len = 1, .index = 9 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // i
+    return (parsed_tile){ .len = 1, .index = 10 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // j
+    return (parsed_tile){ .len = 1, .index = 11 }; // j
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // k
+    return (parsed_tile){ .len = 1, .index = 4 }; // k
   case 0x6c:
-    if (ptr[1] == 0xc2 && ptr[2] == 0xb7 && ptr[3] == 0x6c) return (struct parsed_tile){ .len = 4, .index = 13 }; // l·l
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // l
+    if (ptr[1] == 0xc2 && ptr[2] == 0xb7 && ptr[3] == 0x6c) return (parsed_tile){ .len = 4, .index = 13 }; // l·l
+    return (parsed_tile){ .len = 1, .index = 12 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // m
+    return (parsed_tile){ .len = 1, .index = 14 }; // m
   case 0x6e:
-    if (ptr[1] == 0x79) return (struct parsed_tile){ .len = 2, .index = 16 }; // ny
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // n
+    if (ptr[1] == 0x79) return (parsed_tile){ .len = 2, .index = 16 }; // ny
+    return (parsed_tile){ .len = 1, .index = 15 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // o
+    return (parsed_tile){ .len = 1, .index = 17 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // p
+    return (parsed_tile){ .len = 1, .index = 18 }; // p
   case 0x71:
-    if (ptr[1] == 0x75) return (struct parsed_tile){ .len = 2, .index = 19 }; // qu
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // q
+    if (ptr[1] == 0x75) return (parsed_tile){ .len = 2, .index = 19 }; // qu
+    return (parsed_tile){ .len = 1, .index = 19 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // r
+    return (parsed_tile){ .len = 1, .index = 20 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // s
+    return (parsed_tile){ .len = 1, .index = 21 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // t
+    return (parsed_tile){ .len = 1, .index = 22 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // u
+    return (parsed_tile){ .len = 1, .index = 23 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // v
+    return (parsed_tile){ .len = 1, .index = 24 }; // v
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // w
+    return (parsed_tile){ .len = 1, .index = 13 }; // w
   case 0x78:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // x
+    return (parsed_tile){ .len = 1, .index = 25 }; // x
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // y
+    return (parsed_tile){ .len = 1, .index = 16 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // z
+    return (parsed_tile){ .len = 1, .index = 26 }; // z
   case 0xc3:
-    if (ptr[1] == 0x87) return (struct parsed_tile){ .len = 2, .index = 4 }; // Ç
-    if (ptr[1] == 0xa7) return (struct parsed_tile){ .len = 2, .index = 4 }; // ç
+    if (ptr[1] == 0x87) return (parsed_tile){ .len = 2, .index = 4 }; // Ç
+    if (ptr[1] == 0xa7) return (parsed_tile){ .len = 2, .index = 4 }; // ç
     break;
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile english_tileset[] = {
+tile english_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "B", .blank_label = "b" }, // 2
@@ -433,119 +433,119 @@ struct tile english_tileset[] = {
   { .label = "Z", .blank_label = "z" }, // 26
 };
 
-struct parsed_tile english_tileset_parse(uint8_t *ptr) {
+parsed_tile english_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // B
+    return (parsed_tile){ .len = 1, .index = 2 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // C
+    return (parsed_tile){ .len = 1, .index = 3 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // D
+    return (parsed_tile){ .len = 1, .index = 4 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // E
+    return (parsed_tile){ .len = 1, .index = 5 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // F
+    return (parsed_tile){ .len = 1, .index = 6 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // G
+    return (parsed_tile){ .len = 1, .index = 7 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // H
+    return (parsed_tile){ .len = 1, .index = 8 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // I
+    return (parsed_tile){ .len = 1, .index = 9 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // J
+    return (parsed_tile){ .len = 1, .index = 10 }; // J
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // K
+    return (parsed_tile){ .len = 1, .index = 11 }; // K
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // L
+    return (parsed_tile){ .len = 1, .index = 12 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // M
+    return (parsed_tile){ .len = 1, .index = 13 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // N
+    return (parsed_tile){ .len = 1, .index = 14 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // O
+    return (parsed_tile){ .len = 1, .index = 15 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // P
+    return (parsed_tile){ .len = 1, .index = 16 }; // P
   case 0x51:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // Q
+    return (parsed_tile){ .len = 1, .index = 17 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // R
+    return (parsed_tile){ .len = 1, .index = 18 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // S
+    return (parsed_tile){ .len = 1, .index = 19 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // T
+    return (parsed_tile){ .len = 1, .index = 20 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // U
+    return (parsed_tile){ .len = 1, .index = 21 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // V
+    return (parsed_tile){ .len = 1, .index = 22 }; // V
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // W
+    return (parsed_tile){ .len = 1, .index = 23 }; // W
   case 0x58:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // X
+    return (parsed_tile){ .len = 1, .index = 24 }; // X
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // Y
+    return (parsed_tile){ .len = 1, .index = 25 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // Z
+    return (parsed_tile){ .len = 1, .index = 26 }; // Z
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // b
+    return (parsed_tile){ .len = 1, .index = 2 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // c
+    return (parsed_tile){ .len = 1, .index = 3 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // d
+    return (parsed_tile){ .len = 1, .index = 4 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // e
+    return (parsed_tile){ .len = 1, .index = 5 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // f
+    return (parsed_tile){ .len = 1, .index = 6 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // g
+    return (parsed_tile){ .len = 1, .index = 7 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // h
+    return (parsed_tile){ .len = 1, .index = 8 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // i
+    return (parsed_tile){ .len = 1, .index = 9 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // j
+    return (parsed_tile){ .len = 1, .index = 10 }; // j
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // k
+    return (parsed_tile){ .len = 1, .index = 11 }; // k
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // l
+    return (parsed_tile){ .len = 1, .index = 12 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // m
+    return (parsed_tile){ .len = 1, .index = 13 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // n
+    return (parsed_tile){ .len = 1, .index = 14 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // o
+    return (parsed_tile){ .len = 1, .index = 15 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // p
+    return (parsed_tile){ .len = 1, .index = 16 }; // p
   case 0x71:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // q
+    return (parsed_tile){ .len = 1, .index = 17 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // r
+    return (parsed_tile){ .len = 1, .index = 18 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // s
+    return (parsed_tile){ .len = 1, .index = 19 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // t
+    return (parsed_tile){ .len = 1, .index = 20 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // u
+    return (parsed_tile){ .len = 1, .index = 21 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // v
+    return (parsed_tile){ .len = 1, .index = 22 }; // v
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // w
+    return (parsed_tile){ .len = 1, .index = 23 }; // w
   case 0x78:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // x
+    return (parsed_tile){ .len = 1, .index = 24 }; // x
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // y
+    return (parsed_tile){ .len = 1, .index = 25 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // z
+    return (parsed_tile){ .len = 1, .index = 26 }; // z
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile german_tileset[] = {
+tile german_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "Ä", .blank_label = "ä" }, // 2
@@ -578,127 +578,127 @@ struct tile german_tileset[] = {
   { .label = "Z", .blank_label = "z" }, // 29
 };
 
-struct parsed_tile german_tileset_parse(uint8_t *ptr) {
+parsed_tile german_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // B
+    return (parsed_tile){ .len = 1, .index = 3 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // C
+    return (parsed_tile){ .len = 1, .index = 4 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // D
+    return (parsed_tile){ .len = 1, .index = 5 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // E
+    return (parsed_tile){ .len = 1, .index = 6 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // F
+    return (parsed_tile){ .len = 1, .index = 7 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // G
+    return (parsed_tile){ .len = 1, .index = 8 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // H
+    return (parsed_tile){ .len = 1, .index = 9 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // I
+    return (parsed_tile){ .len = 1, .index = 10 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // J
+    return (parsed_tile){ .len = 1, .index = 11 }; // J
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // K
+    return (parsed_tile){ .len = 1, .index = 12 }; // K
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // L
+    return (parsed_tile){ .len = 1, .index = 13 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // M
+    return (parsed_tile){ .len = 1, .index = 14 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // N
+    return (parsed_tile){ .len = 1, .index = 15 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // O
+    return (parsed_tile){ .len = 1, .index = 16 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // P
+    return (parsed_tile){ .len = 1, .index = 18 }; // P
   case 0x51:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // Q
+    return (parsed_tile){ .len = 1, .index = 19 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // R
+    return (parsed_tile){ .len = 1, .index = 20 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // S
+    return (parsed_tile){ .len = 1, .index = 21 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // T
+    return (parsed_tile){ .len = 1, .index = 22 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // U
+    return (parsed_tile){ .len = 1, .index = 23 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // V
+    return (parsed_tile){ .len = 1, .index = 25 }; // V
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // W
+    return (parsed_tile){ .len = 1, .index = 26 }; // W
   case 0x58:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // X
+    return (parsed_tile){ .len = 1, .index = 27 }; // X
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // Y
+    return (parsed_tile){ .len = 1, .index = 28 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 29 }; // Z
+    return (parsed_tile){ .len = 1, .index = 29 }; // Z
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // b
+    return (parsed_tile){ .len = 1, .index = 3 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // c
+    return (parsed_tile){ .len = 1, .index = 4 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // d
+    return (parsed_tile){ .len = 1, .index = 5 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // e
+    return (parsed_tile){ .len = 1, .index = 6 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // f
+    return (parsed_tile){ .len = 1, .index = 7 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // g
+    return (parsed_tile){ .len = 1, .index = 8 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // h
+    return (parsed_tile){ .len = 1, .index = 9 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // i
+    return (parsed_tile){ .len = 1, .index = 10 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // j
+    return (parsed_tile){ .len = 1, .index = 11 }; // j
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // k
+    return (parsed_tile){ .len = 1, .index = 12 }; // k
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // l
+    return (parsed_tile){ .len = 1, .index = 13 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // m
+    return (parsed_tile){ .len = 1, .index = 14 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // n
+    return (parsed_tile){ .len = 1, .index = 15 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // o
+    return (parsed_tile){ .len = 1, .index = 16 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // p
+    return (parsed_tile){ .len = 1, .index = 18 }; // p
   case 0x71:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // q
+    return (parsed_tile){ .len = 1, .index = 19 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // r
+    return (parsed_tile){ .len = 1, .index = 20 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // s
+    return (parsed_tile){ .len = 1, .index = 21 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // t
+    return (parsed_tile){ .len = 1, .index = 22 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // u
+    return (parsed_tile){ .len = 1, .index = 23 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // v
+    return (parsed_tile){ .len = 1, .index = 25 }; // v
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // w
+    return (parsed_tile){ .len = 1, .index = 26 }; // w
   case 0x78:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // x
+    return (parsed_tile){ .len = 1, .index = 27 }; // x
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // y
+    return (parsed_tile){ .len = 1, .index = 28 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 29 }; // z
+    return (parsed_tile){ .len = 1, .index = 29 }; // z
   case 0xc3:
-    if (ptr[1] == 0x84) return (struct parsed_tile){ .len = 2, .index = 2 }; // Ä
-    if (ptr[1] == 0xa4) return (struct parsed_tile){ .len = 2, .index = 2 }; // ä
-    if (ptr[1] == 0x96) return (struct parsed_tile){ .len = 2, .index = 17 }; // Ö
-    if (ptr[1] == 0xb6) return (struct parsed_tile){ .len = 2, .index = 17 }; // ö
-    if (ptr[1] == 0x9c) return (struct parsed_tile){ .len = 2, .index = 24 }; // Ü
-    if (ptr[1] == 0xbc) return (struct parsed_tile){ .len = 2, .index = 24 }; // ü
+    if (ptr[1] == 0x84) return (parsed_tile){ .len = 2, .index = 2 }; // Ä
+    if (ptr[1] == 0xa4) return (parsed_tile){ .len = 2, .index = 2 }; // ä
+    if (ptr[1] == 0x96) return (parsed_tile){ .len = 2, .index = 17 }; // Ö
+    if (ptr[1] == 0xb6) return (parsed_tile){ .len = 2, .index = 17 }; // ö
+    if (ptr[1] == 0x9c) return (parsed_tile){ .len = 2, .index = 24 }; // Ü
+    if (ptr[1] == 0xbc) return (parsed_tile){ .len = 2, .index = 24 }; // ü
     break;
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile norwegian_tileset[] = {
+tile norwegian_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "B", .blank_label = "b" }, // 2
@@ -734,133 +734,133 @@ struct tile norwegian_tileset[] = {
   { .label = "Å", .blank_label = "å" }, // 32
 };
 
-struct parsed_tile norwegian_tileset_parse(uint8_t *ptr) {
+parsed_tile norwegian_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // B
+    return (parsed_tile){ .len = 1, .index = 2 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // C
+    return (parsed_tile){ .len = 1, .index = 3 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // D
+    return (parsed_tile){ .len = 1, .index = 4 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // E
+    return (parsed_tile){ .len = 1, .index = 5 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // F
+    return (parsed_tile){ .len = 1, .index = 6 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // G
+    return (parsed_tile){ .len = 1, .index = 7 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // H
+    return (parsed_tile){ .len = 1, .index = 8 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // I
+    return (parsed_tile){ .len = 1, .index = 9 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // J
+    return (parsed_tile){ .len = 1, .index = 10 }; // J
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // K
+    return (parsed_tile){ .len = 1, .index = 11 }; // K
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // L
+    return (parsed_tile){ .len = 1, .index = 12 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // M
+    return (parsed_tile){ .len = 1, .index = 13 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // N
+    return (parsed_tile){ .len = 1, .index = 14 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // O
+    return (parsed_tile){ .len = 1, .index = 15 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // P
+    return (parsed_tile){ .len = 1, .index = 16 }; // P
   case 0x51:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // Q
+    return (parsed_tile){ .len = 1, .index = 17 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // R
+    return (parsed_tile){ .len = 1, .index = 18 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // S
+    return (parsed_tile){ .len = 1, .index = 19 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // T
+    return (parsed_tile){ .len = 1, .index = 20 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // U
+    return (parsed_tile){ .len = 1, .index = 21 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // V
+    return (parsed_tile){ .len = 1, .index = 22 }; // V
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // W
+    return (parsed_tile){ .len = 1, .index = 23 }; // W
   case 0x58:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // X
+    return (parsed_tile){ .len = 1, .index = 24 }; // X
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // Y
+    return (parsed_tile){ .len = 1, .index = 25 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // Z
+    return (parsed_tile){ .len = 1, .index = 27 }; // Z
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // b
+    return (parsed_tile){ .len = 1, .index = 2 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // c
+    return (parsed_tile){ .len = 1, .index = 3 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // d
+    return (parsed_tile){ .len = 1, .index = 4 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // e
+    return (parsed_tile){ .len = 1, .index = 5 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // f
+    return (parsed_tile){ .len = 1, .index = 6 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // g
+    return (parsed_tile){ .len = 1, .index = 7 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // h
+    return (parsed_tile){ .len = 1, .index = 8 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // i
+    return (parsed_tile){ .len = 1, .index = 9 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // j
+    return (parsed_tile){ .len = 1, .index = 10 }; // j
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // k
+    return (parsed_tile){ .len = 1, .index = 11 }; // k
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // l
+    return (parsed_tile){ .len = 1, .index = 12 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // m
+    return (parsed_tile){ .len = 1, .index = 13 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // n
+    return (parsed_tile){ .len = 1, .index = 14 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // o
+    return (parsed_tile){ .len = 1, .index = 15 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // p
+    return (parsed_tile){ .len = 1, .index = 16 }; // p
   case 0x71:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // q
+    return (parsed_tile){ .len = 1, .index = 17 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // r
+    return (parsed_tile){ .len = 1, .index = 18 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // s
+    return (parsed_tile){ .len = 1, .index = 19 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // t
+    return (parsed_tile){ .len = 1, .index = 20 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // u
+    return (parsed_tile){ .len = 1, .index = 21 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // v
+    return (parsed_tile){ .len = 1, .index = 22 }; // v
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // w
+    return (parsed_tile){ .len = 1, .index = 23 }; // w
   case 0x78:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // x
+    return (parsed_tile){ .len = 1, .index = 24 }; // x
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // y
+    return (parsed_tile){ .len = 1, .index = 25 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // z
+    return (parsed_tile){ .len = 1, .index = 27 }; // z
   case 0xc3:
-    if (ptr[1] == 0x9c) return (struct parsed_tile){ .len = 2, .index = 26 }; // Ü
-    if (ptr[1] == 0xbc) return (struct parsed_tile){ .len = 2, .index = 26 }; // ü
-    if (ptr[1] == 0x86) return (struct parsed_tile){ .len = 2, .index = 28 }; // Æ
-    if (ptr[1] == 0xa6) return (struct parsed_tile){ .len = 2, .index = 28 }; // æ
-    if (ptr[1] == 0x84) return (struct parsed_tile){ .len = 2, .index = 29 }; // Ä
-    if (ptr[1] == 0xa4) return (struct parsed_tile){ .len = 2, .index = 29 }; // ä
-    if (ptr[1] == 0x98) return (struct parsed_tile){ .len = 2, .index = 30 }; // Ø
-    if (ptr[1] == 0xb8) return (struct parsed_tile){ .len = 2, .index = 30 }; // ø
-    if (ptr[1] == 0x96) return (struct parsed_tile){ .len = 2, .index = 31 }; // Ö
-    if (ptr[1] == 0xb6) return (struct parsed_tile){ .len = 2, .index = 31 }; // ö
-    if (ptr[1] == 0x85) return (struct parsed_tile){ .len = 2, .index = 32 }; // Å
-    if (ptr[1] == 0xa5) return (struct parsed_tile){ .len = 2, .index = 32 }; // å
+    if (ptr[1] == 0x9c) return (parsed_tile){ .len = 2, .index = 26 }; // Ü
+    if (ptr[1] == 0xbc) return (parsed_tile){ .len = 2, .index = 26 }; // ü
+    if (ptr[1] == 0x86) return (parsed_tile){ .len = 2, .index = 28 }; // Æ
+    if (ptr[1] == 0xa6) return (parsed_tile){ .len = 2, .index = 28 }; // æ
+    if (ptr[1] == 0x84) return (parsed_tile){ .len = 2, .index = 29 }; // Ä
+    if (ptr[1] == 0xa4) return (parsed_tile){ .len = 2, .index = 29 }; // ä
+    if (ptr[1] == 0x98) return (parsed_tile){ .len = 2, .index = 30 }; // Ø
+    if (ptr[1] == 0xb8) return (parsed_tile){ .len = 2, .index = 30 }; // ø
+    if (ptr[1] == 0x96) return (parsed_tile){ .len = 2, .index = 31 }; // Ö
+    if (ptr[1] == 0xb6) return (parsed_tile){ .len = 2, .index = 31 }; // ö
+    if (ptr[1] == 0x85) return (parsed_tile){ .len = 2, .index = 32 }; // Å
+    if (ptr[1] == 0xa5) return (parsed_tile){ .len = 2, .index = 32 }; // å
     break;
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile polish_tileset[] = {
+tile polish_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "Ą", .blank_label = "ą" }, // 2
@@ -896,131 +896,131 @@ struct tile polish_tileset[] = {
   { .label = "Ż", .blank_label = "ż" }, // 32
 };
 
-struct parsed_tile polish_tileset_parse(uint8_t *ptr) {
+parsed_tile polish_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // B
+    return (parsed_tile){ .len = 1, .index = 3 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // C
+    return (parsed_tile){ .len = 1, .index = 4 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // D
+    return (parsed_tile){ .len = 1, .index = 6 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // E
+    return (parsed_tile){ .len = 1, .index = 7 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // F
+    return (parsed_tile){ .len = 1, .index = 9 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // G
+    return (parsed_tile){ .len = 1, .index = 10 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // H
+    return (parsed_tile){ .len = 1, .index = 11 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // I
+    return (parsed_tile){ .len = 1, .index = 12 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // J
+    return (parsed_tile){ .len = 1, .index = 13 }; // J
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // K
+    return (parsed_tile){ .len = 1, .index = 14 }; // K
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // L
+    return (parsed_tile){ .len = 1, .index = 15 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // M
+    return (parsed_tile){ .len = 1, .index = 17 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // N
+    return (parsed_tile){ .len = 1, .index = 18 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // O
+    return (parsed_tile){ .len = 1, .index = 20 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // P
+    return (parsed_tile){ .len = 1, .index = 22 }; // P
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // R
+    return (parsed_tile){ .len = 1, .index = 23 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // S
+    return (parsed_tile){ .len = 1, .index = 24 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // T
+    return (parsed_tile){ .len = 1, .index = 26 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // U
+    return (parsed_tile){ .len = 1, .index = 27 }; // U
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // W
+    return (parsed_tile){ .len = 1, .index = 28 }; // W
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 29 }; // Y
+    return (parsed_tile){ .len = 1, .index = 29 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 30 }; // Z
+    return (parsed_tile){ .len = 1, .index = 30 }; // Z
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // b
+    return (parsed_tile){ .len = 1, .index = 3 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // c
+    return (parsed_tile){ .len = 1, .index = 4 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // d
+    return (parsed_tile){ .len = 1, .index = 6 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // e
+    return (parsed_tile){ .len = 1, .index = 7 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // f
+    return (parsed_tile){ .len = 1, .index = 9 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // g
+    return (parsed_tile){ .len = 1, .index = 10 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // h
+    return (parsed_tile){ .len = 1, .index = 11 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // i
+    return (parsed_tile){ .len = 1, .index = 12 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // j
+    return (parsed_tile){ .len = 1, .index = 13 }; // j
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // k
+    return (parsed_tile){ .len = 1, .index = 14 }; // k
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // l
+    return (parsed_tile){ .len = 1, .index = 15 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // m
+    return (parsed_tile){ .len = 1, .index = 17 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // n
+    return (parsed_tile){ .len = 1, .index = 18 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // o
+    return (parsed_tile){ .len = 1, .index = 20 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // p
+    return (parsed_tile){ .len = 1, .index = 22 }; // p
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // r
+    return (parsed_tile){ .len = 1, .index = 23 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // s
+    return (parsed_tile){ .len = 1, .index = 24 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // t
+    return (parsed_tile){ .len = 1, .index = 26 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // u
+    return (parsed_tile){ .len = 1, .index = 27 }; // u
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // w
+    return (parsed_tile){ .len = 1, .index = 28 }; // w
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 29 }; // y
+    return (parsed_tile){ .len = 1, .index = 29 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 30 }; // z
+    return (parsed_tile){ .len = 1, .index = 30 }; // z
   case 0xc3:
-    if (ptr[1] == 0x93) return (struct parsed_tile){ .len = 2, .index = 21 }; // Ó
-    if (ptr[1] == 0xb3) return (struct parsed_tile){ .len = 2, .index = 21 }; // ó
+    if (ptr[1] == 0x93) return (parsed_tile){ .len = 2, .index = 21 }; // Ó
+    if (ptr[1] == 0xb3) return (parsed_tile){ .len = 2, .index = 21 }; // ó
     break;
   case 0xc4:
-    if (ptr[1] == 0x84) return (struct parsed_tile){ .len = 2, .index = 2 }; // Ą
-    if (ptr[1] == 0x85) return (struct parsed_tile){ .len = 2, .index = 2 }; // ą
-    if (ptr[1] == 0x86) return (struct parsed_tile){ .len = 2, .index = 5 }; // Ć
-    if (ptr[1] == 0x87) return (struct parsed_tile){ .len = 2, .index = 5 }; // ć
-    if (ptr[1] == 0x98) return (struct parsed_tile){ .len = 2, .index = 8 }; // Ę
-    if (ptr[1] == 0x99) return (struct parsed_tile){ .len = 2, .index = 8 }; // ę
+    if (ptr[1] == 0x84) return (parsed_tile){ .len = 2, .index = 2 }; // Ą
+    if (ptr[1] == 0x85) return (parsed_tile){ .len = 2, .index = 2 }; // ą
+    if (ptr[1] == 0x86) return (parsed_tile){ .len = 2, .index = 5 }; // Ć
+    if (ptr[1] == 0x87) return (parsed_tile){ .len = 2, .index = 5 }; // ć
+    if (ptr[1] == 0x98) return (parsed_tile){ .len = 2, .index = 8 }; // Ę
+    if (ptr[1] == 0x99) return (parsed_tile){ .len = 2, .index = 8 }; // ę
     break;
   case 0xc5:
-    if (ptr[1] == 0x81) return (struct parsed_tile){ .len = 2, .index = 16 }; // Ł
-    if (ptr[1] == 0x82) return (struct parsed_tile){ .len = 2, .index = 16 }; // ł
-    if (ptr[1] == 0x83) return (struct parsed_tile){ .len = 2, .index = 19 }; // Ń
-    if (ptr[1] == 0x84) return (struct parsed_tile){ .len = 2, .index = 19 }; // ń
-    if (ptr[1] == 0x9a) return (struct parsed_tile){ .len = 2, .index = 25 }; // Ś
-    if (ptr[1] == 0x9b) return (struct parsed_tile){ .len = 2, .index = 25 }; // ś
-    if (ptr[1] == 0xb9) return (struct parsed_tile){ .len = 2, .index = 31 }; // Ź
-    if (ptr[1] == 0xba) return (struct parsed_tile){ .len = 2, .index = 31 }; // ź
-    if (ptr[1] == 0xbb) return (struct parsed_tile){ .len = 2, .index = 32 }; // Ż
-    if (ptr[1] == 0xbc) return (struct parsed_tile){ .len = 2, .index = 32 }; // ż
+    if (ptr[1] == 0x81) return (parsed_tile){ .len = 2, .index = 16 }; // Ł
+    if (ptr[1] == 0x82) return (parsed_tile){ .len = 2, .index = 16 }; // ł
+    if (ptr[1] == 0x83) return (parsed_tile){ .len = 2, .index = 19 }; // Ń
+    if (ptr[1] == 0x84) return (parsed_tile){ .len = 2, .index = 19 }; // ń
+    if (ptr[1] == 0x9a) return (parsed_tile){ .len = 2, .index = 25 }; // Ś
+    if (ptr[1] == 0x9b) return (parsed_tile){ .len = 2, .index = 25 }; // ś
+    if (ptr[1] == 0xb9) return (parsed_tile){ .len = 2, .index = 31 }; // Ź
+    if (ptr[1] == 0xba) return (parsed_tile){ .len = 2, .index = 31 }; // ź
+    if (ptr[1] == 0xbb) return (parsed_tile){ .len = 2, .index = 32 }; // Ż
+    if (ptr[1] == 0xbc) return (parsed_tile){ .len = 2, .index = 32 }; // ż
     break;
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile slovene_tileset[] = {
+tile slovene_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "Å", .blank_label = "å" }, // 2
@@ -1059,143 +1059,143 @@ struct tile slovene_tileset[] = {
   { .label = "Ž", .blank_label = "ž" }, // 35
 };
 
-struct parsed_tile slovene_tileset_parse(uint8_t *ptr) {
+parsed_tile slovene_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // B
+    return (parsed_tile){ .len = 1, .index = 4 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // C
+    return (parsed_tile){ .len = 1, .index = 5 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // D
+    return (parsed_tile){ .len = 1, .index = 8 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // E
+    return (parsed_tile){ .len = 1, .index = 9 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // F
+    return (parsed_tile){ .len = 1, .index = 10 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // G
+    return (parsed_tile){ .len = 1, .index = 11 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // H
+    return (parsed_tile){ .len = 1, .index = 12 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // I
+    return (parsed_tile){ .len = 1, .index = 13 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // J
+    return (parsed_tile){ .len = 1, .index = 14 }; // J
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // K
+    return (parsed_tile){ .len = 1, .index = 15 }; // K
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // L
+    return (parsed_tile){ .len = 1, .index = 16 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // M
+    return (parsed_tile){ .len = 1, .index = 17 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // N
+    return (parsed_tile){ .len = 1, .index = 18 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // O
+    return (parsed_tile){ .len = 1, .index = 20 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // P
+    return (parsed_tile){ .len = 1, .index = 22 }; // P
   case 0x51:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // Q
+    return (parsed_tile){ .len = 1, .index = 23 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // R
+    return (parsed_tile){ .len = 1, .index = 24 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // S
+    return (parsed_tile){ .len = 1, .index = 25 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // T
+    return (parsed_tile){ .len = 1, .index = 27 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // U
+    return (parsed_tile){ .len = 1, .index = 28 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 30 }; // V
+    return (parsed_tile){ .len = 1, .index = 30 }; // V
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 31 }; // W
+    return (parsed_tile){ .len = 1, .index = 31 }; // W
   case 0x58:
-    return (struct parsed_tile){ .len = 1, .index = 32 }; // X
+    return (parsed_tile){ .len = 1, .index = 32 }; // X
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 33 }; // Y
+    return (parsed_tile){ .len = 1, .index = 33 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 34 }; // Z
+    return (parsed_tile){ .len = 1, .index = 34 }; // Z
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // b
+    return (parsed_tile){ .len = 1, .index = 4 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // c
+    return (parsed_tile){ .len = 1, .index = 5 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // d
+    return (parsed_tile){ .len = 1, .index = 8 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // e
+    return (parsed_tile){ .len = 1, .index = 9 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // f
+    return (parsed_tile){ .len = 1, .index = 10 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // g
+    return (parsed_tile){ .len = 1, .index = 11 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // h
+    return (parsed_tile){ .len = 1, .index = 12 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // i
+    return (parsed_tile){ .len = 1, .index = 13 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // j
+    return (parsed_tile){ .len = 1, .index = 14 }; // j
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // k
+    return (parsed_tile){ .len = 1, .index = 15 }; // k
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // l
+    return (parsed_tile){ .len = 1, .index = 16 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // m
+    return (parsed_tile){ .len = 1, .index = 17 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // n
+    return (parsed_tile){ .len = 1, .index = 18 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // o
+    return (parsed_tile){ .len = 1, .index = 20 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // p
+    return (parsed_tile){ .len = 1, .index = 22 }; // p
   case 0x71:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // q
+    return (parsed_tile){ .len = 1, .index = 23 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // r
+    return (parsed_tile){ .len = 1, .index = 24 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // s
+    return (parsed_tile){ .len = 1, .index = 25 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // t
+    return (parsed_tile){ .len = 1, .index = 27 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // u
+    return (parsed_tile){ .len = 1, .index = 28 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 30 }; // v
+    return (parsed_tile){ .len = 1, .index = 30 }; // v
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 31 }; // w
+    return (parsed_tile){ .len = 1, .index = 31 }; // w
   case 0x78:
-    return (struct parsed_tile){ .len = 1, .index = 32 }; // x
+    return (parsed_tile){ .len = 1, .index = 32 }; // x
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 33 }; // y
+    return (parsed_tile){ .len = 1, .index = 33 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 34 }; // z
+    return (parsed_tile){ .len = 1, .index = 34 }; // z
   case 0xc3:
-    if (ptr[1] == 0x85) return (struct parsed_tile){ .len = 2, .index = 2 }; // Å
-    if (ptr[1] == 0xa5) return (struct parsed_tile){ .len = 2, .index = 2 }; // å
-    if (ptr[1] == 0x84) return (struct parsed_tile){ .len = 2, .index = 3 }; // Ä
-    if (ptr[1] == 0xa4) return (struct parsed_tile){ .len = 2, .index = 3 }; // ä
-    if (ptr[1] == 0x87) return (struct parsed_tile){ .len = 2, .index = 6 }; // Ç
-    if (ptr[1] == 0xa7) return (struct parsed_tile){ .len = 2, .index = 6 }; // ç
-    if (ptr[1] == 0x91) return (struct parsed_tile){ .len = 2, .index = 19 }; // Ñ
-    if (ptr[1] == 0xb1) return (struct parsed_tile){ .len = 2, .index = 19 }; // ñ
-    if (ptr[1] == 0x96) return (struct parsed_tile){ .len = 2, .index = 21 }; // Ö
-    if (ptr[1] == 0xb6) return (struct parsed_tile){ .len = 2, .index = 21 }; // ö
-    if (ptr[1] == 0x9c) return (struct parsed_tile){ .len = 2, .index = 29 }; // Ü
-    if (ptr[1] == 0xbc) return (struct parsed_tile){ .len = 2, .index = 29 }; // ü
+    if (ptr[1] == 0x85) return (parsed_tile){ .len = 2, .index = 2 }; // Å
+    if (ptr[1] == 0xa5) return (parsed_tile){ .len = 2, .index = 2 }; // å
+    if (ptr[1] == 0x84) return (parsed_tile){ .len = 2, .index = 3 }; // Ä
+    if (ptr[1] == 0xa4) return (parsed_tile){ .len = 2, .index = 3 }; // ä
+    if (ptr[1] == 0x87) return (parsed_tile){ .len = 2, .index = 6 }; // Ç
+    if (ptr[1] == 0xa7) return (parsed_tile){ .len = 2, .index = 6 }; // ç
+    if (ptr[1] == 0x91) return (parsed_tile){ .len = 2, .index = 19 }; // Ñ
+    if (ptr[1] == 0xb1) return (parsed_tile){ .len = 2, .index = 19 }; // ñ
+    if (ptr[1] == 0x96) return (parsed_tile){ .len = 2, .index = 21 }; // Ö
+    if (ptr[1] == 0xb6) return (parsed_tile){ .len = 2, .index = 21 }; // ö
+    if (ptr[1] == 0x9c) return (parsed_tile){ .len = 2, .index = 29 }; // Ü
+    if (ptr[1] == 0xbc) return (parsed_tile){ .len = 2, .index = 29 }; // ü
     break;
   case 0xc4:
-    if (ptr[1] == 0x8c) return (struct parsed_tile){ .len = 2, .index = 7 }; // Č
-    if (ptr[1] == 0x8d) return (struct parsed_tile){ .len = 2, .index = 7 }; // č
+    if (ptr[1] == 0x8c) return (parsed_tile){ .len = 2, .index = 7 }; // Č
+    if (ptr[1] == 0x8d) return (parsed_tile){ .len = 2, .index = 7 }; // č
     break;
   case 0xc5:
-    if (ptr[1] == 0xa0) return (struct parsed_tile){ .len = 2, .index = 26 }; // Š
-    if (ptr[1] == 0xa1) return (struct parsed_tile){ .len = 2, .index = 26 }; // š
-    if (ptr[1] == 0xbd) return (struct parsed_tile){ .len = 2, .index = 35 }; // Ž
-    if (ptr[1] == 0xbe) return (struct parsed_tile){ .len = 2, .index = 35 }; // ž
+    if (ptr[1] == 0xa0) return (parsed_tile){ .len = 2, .index = 26 }; // Š
+    if (ptr[1] == 0xa1) return (parsed_tile){ .len = 2, .index = 26 }; // š
+    if (ptr[1] == 0xbd) return (parsed_tile){ .len = 2, .index = 35 }; // Ž
+    if (ptr[1] == 0xbe) return (parsed_tile){ .len = 2, .index = 35 }; // ž
     break;
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile spanish_tileset[] = {
+tile spanish_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "B", .blank_label = "b" }, // 2
@@ -1227,129 +1227,129 @@ struct tile spanish_tileset[] = {
   { .label = "Z", .blank_label = "z" }, // 28
 };
 
-struct parsed_tile spanish_tileset_parse(uint8_t *ptr) {
+parsed_tile spanish_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x31:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // 1
+    return (parsed_tile){ .len = 1, .index = 4 }; // 1
   case 0x32:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // 2
+    return (parsed_tile){ .len = 1, .index = 13 }; // 2
   case 0x33:
-    return (struct parsed_tile){ .len = 1, .index = 21 }; // 3
+    return (parsed_tile){ .len = 1, .index = 21 }; // 3
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // B
+    return (parsed_tile){ .len = 1, .index = 2 }; // B
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // C
+    return (parsed_tile){ .len = 1, .index = 3 }; // C
   case 0x44:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // D
+    return (parsed_tile){ .len = 1, .index = 5 }; // D
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // E
+    return (parsed_tile){ .len = 1, .index = 6 }; // E
   case 0x46:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // F
+    return (parsed_tile){ .len = 1, .index = 7 }; // F
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // G
+    return (parsed_tile){ .len = 1, .index = 8 }; // G
   case 0x48:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // H
+    return (parsed_tile){ .len = 1, .index = 9 }; // H
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // I
+    return (parsed_tile){ .len = 1, .index = 10 }; // I
   case 0x4a:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // J
+    return (parsed_tile){ .len = 1, .index = 11 }; // J
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // L
+    return (parsed_tile){ .len = 1, .index = 12 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // M
+    return (parsed_tile){ .len = 1, .index = 14 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // N
+    return (parsed_tile){ .len = 1, .index = 15 }; // N
   case 0x4f:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // O
+    return (parsed_tile){ .len = 1, .index = 17 }; // O
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // P
+    return (parsed_tile){ .len = 1, .index = 18 }; // P
   case 0x51:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // Q
+    return (parsed_tile){ .len = 1, .index = 19 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // R
+    return (parsed_tile){ .len = 1, .index = 20 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // S
+    return (parsed_tile){ .len = 1, .index = 22 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // T
+    return (parsed_tile){ .len = 1, .index = 23 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // U
+    return (parsed_tile){ .len = 1, .index = 24 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // V
+    return (parsed_tile){ .len = 1, .index = 25 }; // V
   case 0x58:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // X
+    return (parsed_tile){ .len = 1, .index = 26 }; // X
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // Y
+    return (parsed_tile){ .len = 1, .index = 27 }; // Y
   case 0x5a:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // Z
+    return (parsed_tile){ .len = 1, .index = 28 }; // Z
   case 0x5b:
-    if (ptr[1] == 0x43 && ptr[2] == 0x48 && ptr[3] == 0x5d) return (struct parsed_tile){ .len = 4, .index = 4 }; // [CH]
-    if (ptr[1] == 0x63 && ptr[2] == 0x68 && ptr[3] == 0x5d) return (struct parsed_tile){ .len = 4, .index = 4 }; // [ch]
-    if (ptr[1] == 0x4c && ptr[2] == 0x4c && ptr[3] == 0x5d) return (struct parsed_tile){ .len = 4, .index = 13 }; // [LL]
-    if (ptr[1] == 0x6c && ptr[2] == 0x6c && ptr[3] == 0x5d) return (struct parsed_tile){ .len = 4, .index = 13 }; // [ll]
-    if (ptr[1] == 0x52 && ptr[2] == 0x52 && ptr[3] == 0x5d) return (struct parsed_tile){ .len = 4, .index = 21 }; // [RR]
-    if (ptr[1] == 0x72 && ptr[2] == 0x72 && ptr[3] == 0x5d) return (struct parsed_tile){ .len = 4, .index = 21 }; // [rr]
+    if (ptr[1] == 0x43 && ptr[2] == 0x48 && ptr[3] == 0x5d) return (parsed_tile){ .len = 4, .index = 4 }; // [CH]
+    if (ptr[1] == 0x63 && ptr[2] == 0x68 && ptr[3] == 0x5d) return (parsed_tile){ .len = 4, .index = 4 }; // [ch]
+    if (ptr[1] == 0x4c && ptr[2] == 0x4c && ptr[3] == 0x5d) return (parsed_tile){ .len = 4, .index = 13 }; // [LL]
+    if (ptr[1] == 0x6c && ptr[2] == 0x6c && ptr[3] == 0x5d) return (parsed_tile){ .len = 4, .index = 13 }; // [ll]
+    if (ptr[1] == 0x52 && ptr[2] == 0x52 && ptr[3] == 0x5d) return (parsed_tile){ .len = 4, .index = 21 }; // [RR]
+    if (ptr[1] == 0x72 && ptr[2] == 0x72 && ptr[3] == 0x5d) return (parsed_tile){ .len = 4, .index = 21 }; // [rr]
     break;
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // b
+    return (parsed_tile){ .len = 1, .index = 2 }; // b
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // c
+    return (parsed_tile){ .len = 1, .index = 3 }; // c
   case 0x64:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // d
+    return (parsed_tile){ .len = 1, .index = 5 }; // d
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // e
+    return (parsed_tile){ .len = 1, .index = 6 }; // e
   case 0x66:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // f
+    return (parsed_tile){ .len = 1, .index = 7 }; // f
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // g
+    return (parsed_tile){ .len = 1, .index = 8 }; // g
   case 0x68:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // h
+    return (parsed_tile){ .len = 1, .index = 9 }; // h
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // i
+    return (parsed_tile){ .len = 1, .index = 10 }; // i
   case 0x6a:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // j
+    return (parsed_tile){ .len = 1, .index = 11 }; // j
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // l
+    return (parsed_tile){ .len = 1, .index = 12 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // m
+    return (parsed_tile){ .len = 1, .index = 14 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // n
+    return (parsed_tile){ .len = 1, .index = 15 }; // n
   case 0x6f:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // o
+    return (parsed_tile){ .len = 1, .index = 17 }; // o
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // p
+    return (parsed_tile){ .len = 1, .index = 18 }; // p
   case 0x71:
-    return (struct parsed_tile){ .len = 1, .index = 19 }; // q
+    return (parsed_tile){ .len = 1, .index = 19 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 20 }; // r
+    return (parsed_tile){ .len = 1, .index = 20 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 22 }; // s
+    return (parsed_tile){ .len = 1, .index = 22 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 23 }; // t
+    return (parsed_tile){ .len = 1, .index = 23 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 24 }; // u
+    return (parsed_tile){ .len = 1, .index = 24 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 25 }; // v
+    return (parsed_tile){ .len = 1, .index = 25 }; // v
   case 0x78:
-    return (struct parsed_tile){ .len = 1, .index = 26 }; // x
+    return (parsed_tile){ .len = 1, .index = 26 }; // x
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 27 }; // y
+    return (parsed_tile){ .len = 1, .index = 27 }; // y
   case 0x7a:
-    return (struct parsed_tile){ .len = 1, .index = 28 }; // z
+    return (parsed_tile){ .len = 1, .index = 28 }; // z
   case 0xc3:
-    if (ptr[1] == 0x91) return (struct parsed_tile){ .len = 2, .index = 16 }; // Ñ
-    if (ptr[1] == 0xb1) return (struct parsed_tile){ .len = 2, .index = 16 }; // ñ
+    if (ptr[1] == 0x91) return (parsed_tile){ .len = 2, .index = 16 }; // Ñ
+    if (ptr[1] == 0xb1) return (parsed_tile){ .len = 2, .index = 16 }; // ñ
     break;
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile yupik_tileset[] = {
+tile yupik_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "C", .blank_label = "c" }, // 2
@@ -1371,104 +1371,104 @@ struct tile yupik_tileset[] = {
   { .label = "Y", .blank_label = "y" }, // 18
 };
 
-struct parsed_tile yupik_tileset_parse(uint8_t *ptr) {
+parsed_tile yupik_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
-    return (struct parsed_tile){ .len = 1, .index = 0 }; // ?
+    return (parsed_tile){ .len = 1, .index = 0 }; // ?
   case 0x41:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // A
+    return (parsed_tile){ .len = 1, .index = 1 }; // A
   case 0x43:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // C
+    return (parsed_tile){ .len = 1, .index = 2 }; // C
   case 0x45:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // E
+    return (parsed_tile){ .len = 1, .index = 3 }; // E
   case 0x47:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // G
+    return (parsed_tile){ .len = 1, .index = 4 }; // G
   case 0x49:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // I
+    return (parsed_tile){ .len = 1, .index = 5 }; // I
   case 0x4b:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // K
+    return (parsed_tile){ .len = 1, .index = 6 }; // K
   case 0x4c:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // L
+    return (parsed_tile){ .len = 1, .index = 7 }; // L
   case 0x4d:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // M
+    return (parsed_tile){ .len = 1, .index = 8 }; // M
   case 0x4e:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // N
+    return (parsed_tile){ .len = 1, .index = 9 }; // N
   case 0x50:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // P
+    return (parsed_tile){ .len = 1, .index = 10 }; // P
   case 0x51:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // Q
+    return (parsed_tile){ .len = 1, .index = 11 }; // Q
   case 0x52:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // R
+    return (parsed_tile){ .len = 1, .index = 12 }; // R
   case 0x53:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // S
+    return (parsed_tile){ .len = 1, .index = 13 }; // S
   case 0x54:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // T
+    return (parsed_tile){ .len = 1, .index = 14 }; // T
   case 0x55:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // U
+    return (parsed_tile){ .len = 1, .index = 15 }; // U
   case 0x56:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // V
+    return (parsed_tile){ .len = 1, .index = 16 }; // V
   case 0x57:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // W
+    return (parsed_tile){ .len = 1, .index = 17 }; // W
   case 0x59:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // Y
+    return (parsed_tile){ .len = 1, .index = 18 }; // Y
   case 0x61:
-    return (struct parsed_tile){ .len = 1, .index = 1 }; // a
+    return (parsed_tile){ .len = 1, .index = 1 }; // a
   case 0x63:
-    return (struct parsed_tile){ .len = 1, .index = 2 }; // c
+    return (parsed_tile){ .len = 1, .index = 2 }; // c
   case 0x65:
-    return (struct parsed_tile){ .len = 1, .index = 3 }; // e
+    return (parsed_tile){ .len = 1, .index = 3 }; // e
   case 0x67:
-    return (struct parsed_tile){ .len = 1, .index = 4 }; // g
+    return (parsed_tile){ .len = 1, .index = 4 }; // g
   case 0x69:
-    return (struct parsed_tile){ .len = 1, .index = 5 }; // i
+    return (parsed_tile){ .len = 1, .index = 5 }; // i
   case 0x6b:
-    return (struct parsed_tile){ .len = 1, .index = 6 }; // k
+    return (parsed_tile){ .len = 1, .index = 6 }; // k
   case 0x6c:
-    return (struct parsed_tile){ .len = 1, .index = 7 }; // l
+    return (parsed_tile){ .len = 1, .index = 7 }; // l
   case 0x6d:
-    return (struct parsed_tile){ .len = 1, .index = 8 }; // m
+    return (parsed_tile){ .len = 1, .index = 8 }; // m
   case 0x6e:
-    return (struct parsed_tile){ .len = 1, .index = 9 }; // n
+    return (parsed_tile){ .len = 1, .index = 9 }; // n
   case 0x70:
-    return (struct parsed_tile){ .len = 1, .index = 10 }; // p
+    return (parsed_tile){ .len = 1, .index = 10 }; // p
   case 0x71:
-    return (struct parsed_tile){ .len = 1, .index = 11 }; // q
+    return (parsed_tile){ .len = 1, .index = 11 }; // q
   case 0x72:
-    return (struct parsed_tile){ .len = 1, .index = 12 }; // r
+    return (parsed_tile){ .len = 1, .index = 12 }; // r
   case 0x73:
-    return (struct parsed_tile){ .len = 1, .index = 13 }; // s
+    return (parsed_tile){ .len = 1, .index = 13 }; // s
   case 0x74:
-    return (struct parsed_tile){ .len = 1, .index = 14 }; // t
+    return (parsed_tile){ .len = 1, .index = 14 }; // t
   case 0x75:
-    return (struct parsed_tile){ .len = 1, .index = 15 }; // u
+    return (parsed_tile){ .len = 1, .index = 15 }; // u
   case 0x76:
-    return (struct parsed_tile){ .len = 1, .index = 16 }; // v
+    return (parsed_tile){ .len = 1, .index = 16 }; // v
   case 0x77:
-    return (struct parsed_tile){ .len = 1, .index = 17 }; // w
+    return (parsed_tile){ .len = 1, .index = 17 }; // w
   case 0x79:
-    return (struct parsed_tile){ .len = 1, .index = 18 }; // y
+    return (parsed_tile){ .len = 1, .index = 18 }; // y
   }
-  return (struct parsed_tile){ .len = 0, .index = 0 };
+  return (parsed_tile){ .len = 0, .index = 0 };
 }
 
-struct tile *super_catalan_tileset = catalan_tileset;
-struct parsed_tile (*super_catalan_tileset_parse)(uint8_t *ptr) = catalan_tileset_parse;
+tile *super_catalan_tileset = catalan_tileset;
+parsed_tile (*super_catalan_tileset_parse)(uint8_t *ptr) = catalan_tileset_parse;
 
-struct tile *french_tileset = english_tileset;
-struct parsed_tile (*french_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
+tile *french_tileset = english_tileset;
+parsed_tile (*french_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
 
-struct tile *hong_kong_english_tileset = english_tileset;
-struct parsed_tile (*hong_kong_english_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
+tile *hong_kong_english_tileset = english_tileset;
+parsed_tile (*hong_kong_english_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
 
-struct tile *super_english_tileset = english_tileset;
-struct parsed_tile (*super_english_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
+tile *super_english_tileset = english_tileset;
+parsed_tile (*super_english_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
 
 // parser
 
-struct ofs_len {
+typedef struct {
   uint32_t ofs; // assume no overflow.
   uint32_t len;
-};
+} ofs_len;
 
 // qc = qsort comparator
 
@@ -1478,8 +1478,8 @@ int qc_chr_cmp(const void *a, const void *b) {
 
 uint8_t *qc_ref_tiles_bytes; // temp global, do not free().
 int qc_tiles_slices(const void *a, const void *b) {
-  struct ofs_len aol = *(struct ofs_len *)a;
-  struct ofs_len bol = *(struct ofs_len *)b;
+  ofs_len aol = *(ofs_len *)a;
+  ofs_len bol = *(ofs_len *)b;
   uint32_t min_len = aol.len < bol.len ? aol.len : bol.len;
   int mc = memcmp(qc_ref_tiles_bytes + aol.ofs, qc_ref_tiles_bytes + bol.ofs, min_len);
   if (mc) return mc;
@@ -1489,35 +1489,35 @@ int qc_tiles_slices(const void *a, const void *b) {
 }
 
 static inline bool eql_tiles_slices(void *a, void *b) {
-  struct ofs_len aol = *(struct ofs_len *)a;
-  struct ofs_len bol = *(struct ofs_len *)b;
+  ofs_len aol = *(ofs_len *)a;
+  ofs_len bol = *(ofs_len *)b;
   return aol.len == bol.len && !memcmp(qc_ref_tiles_bytes + aol.ofs, qc_ref_tiles_bytes + bol.ofs, aol.len);
 }
 
 // append-only list of words.
-struct wordlist {
-  struct vec tiles_slices; // vec<ofs_len>
-  struct vec tiles_bytes; // vec<uint8_t>
-};
+typedef struct {
+  vec tiles_slices; // vec<ofs_len>
+  vec tiles_bytes; // vec<uint8_t>
+} wordlist;
 
-static inline struct wordlist wordlist_new(void) {
-  return (struct wordlist){
-      .tiles_slices = vec_new(sizeof(struct ofs_len)),
+static inline wordlist wordlist_new(void) {
+  return (wordlist){
+      .tiles_slices = vec_new(sizeof(ofs_len)),
       .tiles_bytes = vec_new(sizeof(uint8_t)),
     };
 }
 
-static inline void wordlist_free(struct wordlist self[static 1]) {
+static inline void wordlist_free(wordlist self[static 1]) {
   vec_free(&self->tiles_bytes);
   vec_free(&self->tiles_slices);
 }
 
-static inline void wordlist_sort(struct wordlist self[static 1]) {
+static inline void wordlist_sort(wordlist self[static 1]) {
   qc_ref_tiles_bytes = self->tiles_bytes.ptr;
-  qsort(self->tiles_slices.ptr, self->tiles_slices.len, sizeof(struct ofs_len), qc_tiles_slices);
+  qsort(self->tiles_slices.ptr, self->tiles_slices.len, sizeof(ofs_len), qc_tiles_slices);
 }
 
-static inline void wordlist_dedup(struct wordlist self[static 1]) {
+static inline void wordlist_dedup(wordlist self[static 1]) {
   size_t r = 1;
   while (r < self->tiles_slices.len && !eql_tiles_slices(vec_get(&self->tiles_slices, r), vec_get(&self->tiles_slices, r - 1))) ++r;
   if (r < self->tiles_slices.len) {
@@ -1536,31 +1536,31 @@ static inline void wordlist_dedup(struct wordlist self[static 1]) {
 // kwg builder
 
 // unconfirmed entries.
-struct kwgc_transition {
+typedef struct {
    uint32_t arc_index; // refers to states. should only need 22 bits.
    uint8_t tile;
    bool accepts;
-};
+} kwgc_transition;
 
-struct kwgc_transition_stack {
-  struct vec transitions; // vec<kwgc_transition>
-  struct vec indexes; // vec<uint32_t>
-};
+typedef struct {
+  vec transitions; // vec<kwgc_transition>
+  vec indexes; // vec<uint32_t>
+} kwgc_transition_stack;
 
-static inline struct kwgc_transition_stack kwgc_transition_stack_new(void) {
-  return (struct kwgc_transition_stack){
-    .transitions = vec_new(sizeof(struct kwgc_transition)),
+static inline kwgc_transition_stack kwgc_transition_stack_new(void) {
+  return (kwgc_transition_stack){
+    .transitions = vec_new(sizeof(kwgc_transition)),
     .indexes = vec_new(sizeof(uint32_t)),
   };
 }
 
-static inline void kwgc_transition_stack_free(struct kwgc_transition_stack self[static 1]) {
+static inline void kwgc_transition_stack_free(kwgc_transition_stack self[static 1]) {
   vec_free(&self->indexes);
   vec_free(&self->transitions);
 }
 
-static inline void kwgc_transition_stack_push(struct kwgc_transition_stack self[static 1], uint8_t tile) {
-  vec_push(&self->transitions, &(struct kwgc_transition){
+static inline void kwgc_transition_stack_push(kwgc_transition_stack self[static 1], uint8_t tile) {
+  vec_push(&self->transitions, &(kwgc_transition){
       .arc_index = 0, // filled up later
       .tile = tile,
       .accepts = false,
@@ -1568,19 +1568,19 @@ static inline void kwgc_transition_stack_push(struct kwgc_transition_stack self[
   vec_push(&self->indexes, &self->transitions.len);
 }
 
-struct kwgc_state {
+typedef struct {
   uint32_t arc_index; // refers to states.
   uint32_t next_index; // refers to states.
   uint8_t tile;
   bool accepts;
-};
+} kwgc_state;
 
 static inline void do_hash(uint64_t *hash, uint8_t data) {
   *hash = (*hash * 3467) ^ (data ^ 0xff);
 }
 
 static inline uint64_t kwgc_state_hash(void *p) {
-  struct kwgc_state *self = p;
+  kwgc_state *self = p;
   uint64_t hash = 0;
   do_hash(&hash, self->tile);
   do_hash(&hash, self->accepts);
@@ -1596,36 +1596,36 @@ static inline uint64_t kwgc_state_hash(void *p) {
 }
 
 static inline bool kwgc_state_eql(void *pa, void *pb) {
-  struct kwgc_state *a = pa, *b = pb;
+  kwgc_state *a = pa, *b = pb;
   return a->tile == b->tile &&
     a->accepts == b->accepts &&
     a->arc_index == b->arc_index &&
     a->next_index == b->next_index;
 }
 
-struct kwgc_state_maker {
-  struct vec states; // vec<kwgc_state>
-  struct khm states_finder; // khm<kwgc_state,uint32_t>
-};
+typedef struct {
+  vec states; // vec<kwgc_state>
+  khm states_finder; // khm<kwgc_state,uint32_t>
+} kwgc_state_maker;
 
-static inline struct kwgc_state_maker kwgc_state_maker_new(void) {
-  return (struct kwgc_state_maker){
-      .states = vec_new(sizeof(struct kwgc_state)),
-      .states_finder = khm_new(sizeof(struct kwgc_state), sizeof(uint32_t)),
+static inline kwgc_state_maker kwgc_state_maker_new(void) {
+  return (kwgc_state_maker){
+      .states = vec_new(sizeof(kwgc_state)),
+      .states_finder = khm_new(sizeof(kwgc_state), sizeof(uint32_t)),
     };
 }
 
-static inline void kwgc_state_maker_free(struct kwgc_state_maker self[static 1]) {
+static inline void kwgc_state_maker_free(kwgc_state_maker self[static 1]) {
   khm_free(&self->states_finder);
   vec_free(&self->states);
 }
 
 // node_transitions is vec<kwgc_transition>.
-static inline uint32_t kwgc_state_maker_make_state(struct kwgc_state_maker self[static 1], struct vec node_transitions[static 1], size_t target_len) {
+static inline uint32_t kwgc_state_maker_make_state(kwgc_state_maker self[static 1], vec node_transitions[static 1], size_t target_len) {
   uint32_t ret = 0;
   for (size_t i = node_transitions->len; i-- > target_len; ) {
-    struct kwgc_transition *node_transition = vec_get(node_transitions, i);
-    struct kwgc_state state = {
+    kwgc_transition *node_transition = vec_get(node_transitions, i);
+    kwgc_state state = {
         .arc_index = node_transition->arc_index,
         .next_index = ret,
         .tile = node_transition->tile,
@@ -1643,20 +1643,20 @@ static inline uint32_t kwgc_state_maker_make_state(struct kwgc_state_maker self[
   return ret;
 }
 
-static inline void kwgc_transition_stack_pop(struct kwgc_transition_stack self[static 1], struct kwgc_state_maker state_maker[static 1]) {
+static inline void kwgc_transition_stack_pop(kwgc_transition_stack self[static 1], kwgc_state_maker state_maker[static 1]) {
   size_t start_of_batch = (size_t)*(uint32_t *)vec_get(&self->indexes, --self->indexes.len);
   uint32_t new_arc_index = kwgc_state_maker_make_state(state_maker, &self->transitions, start_of_batch);
-  ((struct kwgc_transition *)vec_get(&self->transitions, start_of_batch - 1))->arc_index = new_arc_index;
+  ((kwgc_transition *)vec_get(&self->transitions, start_of_batch - 1))->arc_index = new_arc_index;
   self->transitions.len = start_of_batch;
 }
 
-static inline uint32_t kwgc_state_maker_make_dawg(struct kwgc_state_maker self[static 1], struct wordlist sorted_machine_words[static 1], uint32_t dawg_start_state, bool is_gaddag_phase) {
-  struct kwgc_transition_stack transition_stack = kwgc_transition_stack_new();
+static inline uint32_t kwgc_state_maker_make_dawg(kwgc_state_maker self[static 1], wordlist sorted_machine_words[static 1], uint32_t dawg_start_state, bool is_gaddag_phase) {
+  kwgc_transition_stack transition_stack = kwgc_transition_stack_new();
   for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
-    struct ofs_len *this_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index);
+    ofs_len *this_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index);
     uint32_t prefix_len = 0;
     if (machine_word_index > 0) {
-      struct ofs_len *prev_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index - 1);
+      ofs_len *prev_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index - 1);
       uint32_t prev_word_len = transition_stack.indexes.len; // this can be one less than prev_word->len for gaddag.
       uint32_t min_word_len = prev_word_len < this_word->len ? prev_word_len : this_word->len;
       while (prefix_len < min_word_len &&
@@ -1677,7 +1677,7 @@ static inline uint32_t kwgc_state_maker_make_dawg(struct kwgc_state_maker self[s
       for (uint32_t i = this_word->len - 1; i > 0; --i) {
         uint8_t sought_tile = *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + i - 1);
         while (true) {
-          struct kwgc_state *pstate = vec_get(&self->states, p);
+          kwgc_state *pstate = vec_get(&self->states, p);
           if (pstate->tile == sought_tile) {
             p = pstate->arc_index;
             break;
@@ -1685,9 +1685,9 @@ static inline uint32_t kwgc_state_maker_make_dawg(struct kwgc_state_maker self[s
           p = pstate->next_index;
         }
       }
-      ((struct kwgc_transition *)vec_get(&transition_stack.transitions, transition_stack.transitions.len - 1))->arc_index = p;
+      ((kwgc_transition *)vec_get(&transition_stack.transitions, transition_stack.transitions.len - 1))->arc_index = p;
     } else {
-      ((struct kwgc_transition *)vec_get(&transition_stack.transitions, transition_stack.transitions.len - 1))->accepts = true;
+      ((kwgc_transition *)vec_get(&transition_stack.transitions, transition_stack.transitions.len - 1))->accepts = true;
     }
   }
   while (transition_stack.indexes.len) kwgc_transition_stack_pop(&transition_stack, self);
@@ -1696,14 +1696,14 @@ static inline uint32_t kwgc_state_maker_make_dawg(struct kwgc_state_maker self[s
   return ret;
 }
 
-struct kwgc_states_defragger {
-  struct kwgc_state *states;
+typedef struct {
+  kwgc_state *states;
   uint32_t *prev_indexes;
   uint32_t *destination;
   uint32_t num_written;
-};
+} kwgc_states_defragger;
 
-void kwgc_states_defragger_defrag(struct kwgc_states_defragger self[static 1], uint32_t p) {
+void kwgc_states_defragger_defrag(kwgc_states_defragger self[static 1], uint32_t p) {
   while (true) {
     uint32_t prev = self->prev_indexes[p];
     if (!prev) break;
@@ -1742,10 +1742,10 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
 }
 
 // ret = vec<uint32_t>, must initially be empty.
-void kwgc_build(struct vec *ret, struct wordlist sorted_machine_words[static 1], bool is_gaddag) {
-  struct kwgc_state_maker state_maker = kwgc_state_maker_new();
+void kwgc_build(vec *ret, wordlist sorted_machine_words[static 1], bool is_gaddag) {
+  kwgc_state_maker state_maker = kwgc_state_maker_new();
   // The sink state always exists.
-  vec_push(&state_maker.states, &(struct kwgc_state){
+  vec_push(&state_maker.states, &(kwgc_state){
       .arc_index = 0,
       .next_index = 0,
       .tile = 0,
@@ -1756,13 +1756,13 @@ void kwgc_build(struct vec *ret, struct wordlist sorted_machine_words[static 1],
   uint32_t dawg_start_state = kwgc_state_maker_make_dawg(&state_maker, sorted_machine_words, 0, false);
   uint32_t gaddag_start_state = 0;
   if (is_gaddag) {
-    struct ofs_len cur_ofs_len = { .ofs = 0, .len = 0 };
-    struct wordlist gaddag_wl = wordlist_new();
+    ofs_len cur_ofs_len = { .ofs = 0, .len = 0 };
+    wordlist gaddag_wl = wordlist_new();
     for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
-      struct ofs_len *this_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index);
+      ofs_len *this_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index);
       uint32_t prefix_len = 0;
       if (machine_word_index > 0) {
-        struct ofs_len *prev_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index - 1);
+        ofs_len *prev_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index - 1);
         uint32_t max_prefix_len = prev_word->len - 1; // - 1 because CAR -> CARE means we still need to emit RAC@.
         if (this_word->len < max_prefix_len) max_prefix_len = this_word->len;
         while (prefix_len < max_prefix_len &&
@@ -1795,13 +1795,13 @@ void kwgc_build(struct vec *ret, struct wordlist sorted_machine_words[static 1],
   uint32_t *prev_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   memset(prev_indexes, 0, state_maker.states.len * sizeof(uint32_t));
   for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-    prev_indexes[((struct kwgc_state *)vec_get(&state_maker.states, p))->next_index] = p;
+    prev_indexes[((kwgc_state *)vec_get(&state_maker.states, p))->next_index] = p;
   }
   // prev_indexes[0] is garbage, does not matter.
   uint32_t *destination = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   memset(destination, 0, state_maker.states.len * sizeof(uint32_t));
-  struct kwgc_states_defragger states_defragger = {
-      .states = (struct kwgc_state *)state_maker.states.ptr,
+  kwgc_states_defragger states_defragger = {
+      .states = (kwgc_state *)state_maker.states.ptr,
       .prev_indexes = prev_indexes,
       .destination = destination,
       .num_written = is_gaddag ? 2 : 1,
@@ -1826,7 +1826,7 @@ void kwgc_build(struct vec *ret, struct wordlist sorted_machine_words[static 1],
       uint32_t dp = destination[outer_p];
       if (dp) {
         for (uint32_t p = outer_p; ; ++dp) {
-          struct kwgc_state *state = states_defragger.states + p;
+          kwgc_state *state = states_defragger.states + p;
           kwgc_write_node((uint8_t *)vec_get(ret, dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
           if (!state->next_index) break;
           p = state->next_index;
@@ -1841,7 +1841,7 @@ void kwgc_build(struct vec *ret, struct wordlist sorted_machine_words[static 1],
 
 // commands
 
-bool do_lang_kwg(char **argv, struct parsed_tile tileset_parse(uint8_t *), int mode) {
+bool do_lang_kwg(char **argv, parsed_tile tileset_parse(uint8_t *), int mode) {
   // assume argc >= 4. mode in [0 (dawgonly), 1 (gaddawg), 2 (alpha)].
   bool errored = false;
   bool defer_fclose = false;
@@ -1857,10 +1857,10 @@ bool do_lang_kwg(char **argv, struct parsed_tile tileset_parse(uint8_t *), int m
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
   file_content[file_size++] = '\n'; // sentinel
-  struct ofs_len cur_ofs_len = { .ofs = 0, .len = 0 };
-  struct wordlist wl = wordlist_new(); defer_free_wl = true;
+  ofs_len cur_ofs_len = { .ofs = 0, .len = 0 };
+  wordlist wl = wordlist_new(); defer_free_wl = true;
   for (size_t i = 0; i < file_size; ) {
-    struct parsed_tile parsed_tile = tileset_parse(file_content + i);
+    parsed_tile parsed_tile = tileset_parse(file_content + i);
     if (parsed_tile.len && parsed_tile.index > 0) { // ignore blank
       vec_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
@@ -1882,7 +1882,7 @@ bool do_lang_kwg(char **argv, struct parsed_tile tileset_parse(uint8_t *), int m
   defer_free_file_content = false; free(file_content);
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
-  struct vec ret = vec_new(sizeof(uint32_t)); defer_free_ret = true;
+  vec ret = vec_new(sizeof(uint32_t)); defer_free_ret = true;
   kwgc_build(&ret, &wl, mode == 1);
   if (!ret.len) goto errored;
   f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
@@ -1898,7 +1898,7 @@ cleanup:
   return !errored;
 }
 
-bool do_lang_klv2(char **argv, struct parsed_tile tileset_parse(uint8_t *)) {
+bool do_lang_klv2(char **argv, parsed_tile tileset_parse(uint8_t *)) {
   bool errored = false;
   bool defer_fclose = false;
   bool defer_free_file_content = false;
@@ -1914,11 +1914,11 @@ bool do_lang_klv2(char **argv, struct parsed_tile tileset_parse(uint8_t *)) {
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
   file_content[file_size++] = '\n'; // sentinel
-  struct ofs_len cur_ofs_len = { .ofs = 0, .len = 0 };
-  struct wordlist wl = wordlist_new(); defer_free_wl = true;
+  ofs_len cur_ofs_len = { .ofs = 0, .len = 0 };
+  wordlist wl = wordlist_new(); defer_free_wl = true;
   bool this_is_big_endian = is_big_endian();
   for (size_t i = 0; i < file_size; ) {
-    struct parsed_tile parsed_tile = tileset_parse(file_content + i);
+    parsed_tile parsed_tile = tileset_parse(file_content + i);
     if (parsed_tile.len) { // allow blank
       vec_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
@@ -1961,7 +1961,7 @@ bool do_lang_klv2(char **argv, struct parsed_tile tileset_parse(uint8_t *)) {
   defer_free_file_content = false; free(file_content);
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
-  struct vec ret = vec_new(sizeof(uint32_t)); defer_free_ret = true;
+  vec ret = vec_new(sizeof(uint32_t)); defer_free_ret = true;
   kwgc_build(&ret, &wl, false);
   if (!ret.len) goto errored;
   size_t out_len = ret.len + wl.tiles_slices.len + 2;
@@ -1978,7 +1978,7 @@ bool do_lang_klv2(char **argv, struct parsed_tile tileset_parse(uint8_t *)) {
   *pout++ = wl.tiles_slices.len >> 16;
   *pout++ = wl.tiles_slices.len >> 24;
   for (size_t i = 0; i < wl.tiles_slices.len; ++i) {
-    struct ofs_len *this_word = vec_get(&wl.tiles_slices, i);
+    ofs_len *this_word = vec_get(&wl.tiles_slices, i);
     uint8_t *p = vec_get(&wl.tiles_bytes, this_word->ofs + this_word->len);
     *pout++ = *p++;
     *pout++ = *p++;
@@ -1999,9 +1999,9 @@ cleanup:
   return !errored;
 }
 
-struct kwg_node { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; }; // compiler-specific UB.
+typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } kwg_node; // compiler-specific UB.
 
-void dump_kwg(struct kwg_node *kwg, struct vec *word, uint32_t p, struct tile tileset[static 1]) {
+void dump_kwg(kwg_node *kwg, vec *word, uint32_t p, tile tileset[static 1]) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
     size_t len = orig_len + strlen(tileset[kwg[p].c].label);
@@ -2015,7 +2015,7 @@ void dump_kwg(struct kwg_node *kwg, struct vec *word, uint32_t p, struct tile ti
   word->len = orig_len;
 }
 
-bool do_lang_rkwg(char **argv, struct tile tileset[static 1]) {
+bool do_lang_rkwg(char **argv, tile tileset[static 1]) {
   // assume argc >= 3.
   bool errored = false;
   bool defer_fclose = false;
@@ -2029,8 +2029,8 @@ bool do_lang_rkwg(char **argv, struct tile tileset[static 1]) {
   rewind(f);
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  struct kwg_node *kwg = (struct kwg_node *)file_content;
-  struct vec word = vec_new(sizeof(uint8_t)); defer_free_word = true;
+  kwg_node *kwg = (kwg_node *)file_content;
+  vec word = vec_new(sizeof(uint8_t)); defer_free_word = true;
   dump_kwg(kwg, &word, kwg[0].p, tileset);
   goto cleanup;
 errored: errored = true;
@@ -2041,7 +2041,7 @@ cleanup:
   return !errored;
 }
 
-void dump_klv2(struct kwg_node *kwg, struct vec *word, uint32_t p, struct tile tileset[static 1], float **klv_ptr) {
+void dump_klv2(kwg_node *kwg, vec *word, uint32_t p, tile tileset[static 1], float **klv_ptr) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
     size_t len = orig_len + strlen(tileset[kwg[p].c].label);
@@ -2055,7 +2055,7 @@ void dump_klv2(struct kwg_node *kwg, struct vec *word, uint32_t p, struct tile t
   word->len = orig_len;
 }
 
-bool do_lang_rklv2(char **argv, struct tile tileset[static 1]) {
+bool do_lang_rklv2(char **argv, tile tileset[static 1]) {
   // assume argc >= 3.
   bool errored = false;
   bool defer_fclose = false;
@@ -2070,9 +2070,9 @@ bool do_lang_rklv2(char **argv, struct tile tileset[static 1]) {
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   uint32_t num_kwg_nodes = *(uint32_t *)file_content;
-  struct kwg_node *kwg = (struct kwg_node *)(file_content + 4);
+  kwg_node *kwg = (kwg_node *)(file_content + 4);
   float *klv_values = (float *)(file_content + 4 * (2 + num_kwg_nodes));
-  struct vec word = vec_new(sizeof(uint8_t)); defer_free_word = true;
+  vec word = vec_new(sizeof(uint8_t)); defer_free_word = true;
   dump_klv2(kwg, &word, kwg[0].p, tileset, &klv_values);
   goto cleanup;
 errored: errored = true;
@@ -2083,7 +2083,7 @@ cleanup:
   return !errored;
 }
 
-bool do_lang(int argc, char **argv, const char lang_name[static 1], struct parsed_tile tileset_parse(uint8_t *), struct tile tileset[static 1]) {
+bool do_lang(int argc, char **argv, const char lang_name[static 1], parsed_tile tileset_parse(uint8_t *), tile tileset[static 1]) {
   const size_t lang_name_len = strlen(lang_name);
   if (!(argc > 1 && !strncmp(argv[1], lang_name, lang_name_len))) {
     return false;
