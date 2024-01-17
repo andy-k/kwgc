@@ -1734,7 +1734,7 @@ void kwgc_states_defragger_defrag(struct kwgc_states_defragger self[static 1], u
   self->num_written += num;
 }
 
-void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, bool is_end, bool accepts, uint8_t tile) {
+static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, bool is_end, bool accepts, uint8_t tile) {
   pout[0] = defragged_arc_index;
   pout[1] = defragged_arc_index >> 8;
   pout[2] = ((defragged_arc_index >> 16) & 0x3f) | (uint8_t)(is_end << 6) | (uint8_t)(accepts << 7);
@@ -1909,7 +1909,7 @@ bool do_lang_klv2(char **argv, struct parsed_tile tileset_parse(uint8_t *)) {
   if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
   off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
   size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size + 2); defer_free_file_content = true;
+  uint8_t *file_content = malloc_or_die(file_size + 1); defer_free_file_content = true;
   rewind(f);
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
@@ -1980,7 +1980,6 @@ bool do_lang_klv2(char **argv, struct parsed_tile tileset_parse(uint8_t *)) {
   for (size_t i = 0; i < wl.tiles_slices.len; ++i) {
     struct ofs_len *this_word = vec_get(&wl.tiles_slices, i);
     uint8_t *p = vec_get(&wl.tiles_bytes, this_word->ofs + this_word->len);
-    // assume little-endian.
     *pout++ = *p++;
     *pout++ = *p++;
     *pout++ = *p++;
