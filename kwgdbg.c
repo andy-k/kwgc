@@ -6,9 +6,9 @@
 #include <stdint.h>
 #include <sys/mman.h>
 
-struct kwg_node { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; }; // compiler-specific UB.
+typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; // compiler-specific UB.
 
-void dump_kwg(struct kwg_node *kwg, char s[static 1], size_t l, uint32_t p) {
+void dump_kwg(KwgNode *kwg, char s[static 1], size_t l, uint32_t p) {
   for (; p > 0; ++p) {
     s[l] = (char)(kwg[p].c | 0x40); // english only.
     if (kwg[p].d) printf("%.*s\n", (int)(l + 1), s);
@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
   off_t kwg_size_signed = ftello(f); if (kwg_size_signed < 0) { perror("ftello"); goto errored; }
   size_t kwg_size = (size_t)kwg_size_signed;
   if ((kwg_size & 3) != 0 || !((size_t)dawgroot < (kwg_size >> 2))) { fputs("unexpected file size\n", stderr); goto errored; }
-  struct kwg_node *kwg = mmap(NULL, kwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (!kwg) { perror("mmap"); goto errored; } defer_munmap = true;
+  KwgNode *kwg = mmap(NULL, kwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (!kwg) { perror("mmap"); goto errored; } defer_munmap = true;
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
   char buf[64]; // risky!
   dump_kwg(kwg, buf, 0, kwg[dawgroot].p);
