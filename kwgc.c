@@ -109,7 +109,7 @@ static inline void *vec_get(Vec self[static 1], size_t i) {
 
 // vec_push(&vec, &elt);
 static inline void vec_push(Vec self[static 1], void *elt) {
-  vec_ensure_cap(self, (self->len + 1) * self->elt_size);
+  vec_ensure_cap(self, (self->len + 1));
   memcpy(vec_get(self, self->len), elt, self->elt_size);
   ++self->len;
 }
