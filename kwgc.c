@@ -828,7 +828,20 @@ void dump_klv2(KwgNode *kwg, Vec *word, uint32_t p, Tile tileset[static 1], floa
     vec_ensure_cap(word, len);
     strcpy(vec_get(word, orig_len), tileset[kwg[p].c].label);
     word->len = len;
-    if (kwg[p].d) printf("%.*s,%f\n", (int)len, word->ptr, *(*klv_ptr)++);
+    if (kwg[p].d) {
+      // find the required precision between 1 and 16.
+      char s[128];
+      float check;
+#define precision_le(n, t, f) (((sprintf(s, "%." #n "f", **klv_ptr), sscanf(s, "%f", &check)) == 1 && check == **klv_ptr) ? t : f)
+      int precision = precision_le(8,
+        precision_le(4,
+          precision_le(2, precision_le(1, 1, 2), precision_le(3, 3, 4)),
+          precision_le(6, precision_le(5, 5, 6), precision_le(7, 7, 8))),
+        precision_le(12,
+          precision_le(10, precision_le(9, 9, 10), precision_le(11, 11, 12)),
+          precision_le(14, precision_le(13, 13, 14), precision_le(15, 15, 16))));
+      printf("%.*s,%.*f\n", (int)len, word->ptr, precision, *(*klv_ptr)++);
+    }
     if (kwg[p].p) dump_klv2(kwg, word, kwg[p].p, tileset, klv_ptr);
     if (kwg[p].e) break;
   }
