@@ -109,7 +109,7 @@ static inline KHM_V_T *KHM_F(get)(KHM_T self[static 1], KHM_K_T *pk) {
 // bool inserted = khmKV_set(&khm, &k, &v);
 static inline bool KHM_F(set)(KHM_T self[static 1], KHM_K_T *pk, KHM_V_T *pv) {
   uint64_t hsh = KHM_K_HASHFUNC(pk);
-  size_t probe = KHM_F(locate)(self, pk, hsh);
+  size_t probe = self->len + self->len / 3 >= self->occupieds.len ? (size_t)-1 : KHM_F(locate)(self, pk, hsh);
   if (probe == (size_t)-1) {
     // no space. grow.
     size_t next_cap = self->occupieds.len << 1; // ignore overflow.
