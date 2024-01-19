@@ -60,184 +60,37 @@ static inline void *realloc_or_die(void *ptr, size_t size) {
   return not_null_or_die(realloc(ptr, size));
 }
 
-// Vec helpers
+// generic vec types
 
-typedef struct {
-  uint8_t *ptr;
-  size_t len, cap, elt_size;
-} Vec;
+#define VEC_ELT_NAME Bool
+#define VEC_ELT_T bool
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
 
-// Vec v = vec_new(sizeof(T));
-static inline Vec vec_new(size_t elt_size) {
-  return (Vec){
-    .ptr = NULL,
-    .len = 0,
-    .cap = 0,
-    .elt_size = elt_size,
-  };
-}
+#define VEC_ELT_NAME U64
+#define VEC_ELT_T uint64_t
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
 
-// vec_ensure_cap_exact(&vec, new_cap);
-static inline void vec_ensure_cap_exact(Vec self[static 1], size_t new_capacity) {
-  if (self->cap < new_capacity) {
-    self->ptr = realloc_or_die(self->ptr, new_capacity * self->elt_size);
-    self->cap = new_capacity;
-  }
-}
+#define VEC_ELT_NAME Byte
+#define VEC_ELT_T uint8_t
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
 
-// vec_ensure_cap(&vec, min_cap);
-static inline void vec_ensure_cap(Vec self[static 1], size_t min_capacity) {
-  if (self->cap < min_capacity) {
-    size_t new_capacity = min_capacity * 2; // assume no overflow.
-    self->ptr = realloc_or_die(self->ptr, new_capacity * self->elt_size);
-    self->cap = new_capacity;
-  }
-}
+#define VEC_ELT_NAME U32
+#define VEC_ELT_T uint32_t
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
 
-// vec_free(&vec);
-static inline void vec_free(Vec self[static 1]) {
-  free(self->ptr);
-  self->ptr = NULL;
-  self->len = 0;
-  self->cap = 0;
-}
-
-// *(T *)vec_get(&vec, i)
-static inline void *vec_get(Vec self[static 1], size_t i) {
-  return self->ptr + (i * self->elt_size);
-}
-
-// vec_push(&vec, &elt);
-static inline void vec_push(Vec self[static 1], void *elt) {
-  vec_ensure_cap(self, (self->len + 1));
-  memcpy(vec_get(self, self->len), elt, self->elt_size);
-  ++self->len;
-}
-
-// kurnia hashmap
-
-typedef struct {
-  Vec occupieds; // Vec<bool>
-  Vec hashes; // Vec<uint64_t>
-  Vec keys; // Vec<K>
-  Vec values; // Vec<V>
-  size_t len;
-  size_t last_probe;
-} Khm;
-
-// Khm h = khm_new_cap(sizeof(K), sizeof(V), cap);
-static inline Khm khm_new_cap(size_t key_size, size_t value_size, size_t cap) {
-  if (cap != (cap & -cap) || (cap && cap < 16)) { // 0 or power of two of at least 16.
-    fprintf(stderr, "invalid cap=%zu\n", cap);
-    abort();
-  }
-  Khm ret = {
-    .occupieds = vec_new(sizeof(bool)),
-    .hashes = vec_new(sizeof(uint64_t)),
-    .keys = vec_new(key_size),
-    .values = vec_new(value_size),
-    .len = 0,
-    .last_probe = (size_t)-1,
-  };
-  vec_ensure_cap_exact(&ret.occupieds, cap);
-  vec_ensure_cap_exact(&ret.hashes, cap);
-  vec_ensure_cap_exact(&ret.keys, cap);
-  vec_ensure_cap_exact(&ret.values, cap);
-  memset(ret.occupieds.ptr, 0, cap * sizeof(bool));
-  ret.occupieds.len = cap;
-  ret.hashes.len = cap;
-  ret.keys.len = cap;
-  ret.values.len = cap;
-  return ret;
-}
-
-// Khm h = khm_new(sizeof(K), sizeof(V));
-static inline Khm khm_new(size_t key_size, size_t value_size) {
-  return khm_new_cap(key_size, value_size, 16);
-}
-
-// khm_free(&khm);
-static inline void khm_free(Khm self[static 1]) {
-  vec_free(&self->values);
-  vec_free(&self->keys);
-  vec_free(&self->hashes);
-  vec_free(&self->occupieds);
-  self->len = 0;
-}
-
-// size_t idx = khm_locate(&khm, &k, hshk(pk), eqlk);
-// returns index where the value is or would end up, or (size_t)-1 if full.
-static inline size_t khm_locate(Khm self[static 1], void *pk, uint64_t hsh, bool (*eqlk)(void *, void *)) {
-  if (!self->occupieds.len) return (size_t)-1;
-  size_t mask = self->occupieds.len - 1; // always power of two.
-  size_t bucket = hsh & mask;
-  size_t probe = bucket;
-  do {
-    if (!*(bool *)vec_get(&self->occupieds, probe)) return probe;
-    if (*(uint64_t *)vec_get(&self->hashes, probe) == hsh && eqlk(vec_get(&self->keys, probe), pk)) return probe;
-    probe = (probe + 1) & mask;
-  } while (probe != bucket);
-  return (size_t)-1;
-}
-
-// V *v = khm_get(&khm, &k, hshk, eqlk);
-static inline void *khm_get(Khm self[static 1], void *pk, uint64_t (*hshk)(void *), bool (*eqlk)(void *, void *)) {
-  uint64_t hsh = hshk(pk);
-  size_t probe = khm_locate(self, pk, hsh, eqlk);
-  self->last_probe = probe;
-  if (probe == (size_t)-1) return NULL;
-  if (*(bool *)vec_get(&self->occupieds, probe)) return vec_get(&self->values, probe);
-  return NULL;
-}
-
-// bool inserted = khm_set(&khm, &k, &v, hshk, eqlk);
-static inline bool khm_set(Khm self[static 1], void *pk, void *pv, uint64_t (*hshk)(void *), bool (*eqlk)(void *, void *)) {
-  uint64_t hsh = hshk(pk);
-  size_t probe = khm_locate(self, pk, hsh, eqlk);
-  if (probe == (size_t)-1) {
-    // no space. grow.
-    size_t next_cap = self->occupieds.len * 2; // ignore overflow.
-    if (next_cap < 16) next_cap = 16;
-    Khm old = *self;
-    // rehash.
-    self->occupieds.ptr = NULL;
-    self->hashes.ptr = NULL;
-    self->keys.ptr = NULL;
-    self->values.ptr = NULL;
-    vec_ensure_cap_exact(&self->occupieds, next_cap);
-    vec_ensure_cap_exact(&self->hashes, next_cap);
-    vec_ensure_cap_exact(&self->keys, next_cap);
-    vec_ensure_cap_exact(&self->values, next_cap);
-    memset(self->occupieds.ptr, 0, next_cap * sizeof(bool));
-    self->occupieds.len = next_cap;
-    self->hashes.len = next_cap;
-    self->keys.len = next_cap;
-    self->values.len = next_cap;
-    for (size_t i = 0; i < old.occupieds.len; ++i) {
-      if (*(bool *)vec_get(&old.occupieds, i)) {
-        uint64_t old_hash = *(uint64_t *)vec_get(&old.hashes, i);
-        probe = khm_locate(self, vec_get(&old.keys, i), old_hash, eqlk);
-        *(bool *)vec_get(&self->occupieds, probe) = true;
-        *(uint64_t *)vec_get(&self->hashes, probe) = old_hash;
-        memcpy(vec_get(&self->keys, probe), vec_get(&old.keys, i), self->keys.elt_size);
-        memcpy(vec_get(&self->values, probe), vec_get(&old.values, i), self->values.elt_size);
-      }
-    }
-    khm_free(&old);
-    probe = khm_locate(self, pk, hsh, eqlk);
-  }
-  self->last_probe = probe;
-  if (*(bool *)vec_get(&self->occupieds, probe)) {
-    memcpy(vec_get(&self->values, probe), pv, self->values.elt_size);
-    return false; // replaced, old value is gone.
-  }
-  *(bool *)vec_get(&self->occupieds, probe) = true;
-  *(uint64_t *)vec_get(&self->hashes, probe) = hsh;
-  memcpy(vec_get(&self->keys, probe), pk, self->keys.elt_size);
-  memcpy(vec_get(&self->values, probe), pv, self->values.elt_size);
-  ++self->len;
-  return true; // inserted.
-}
+#define VEC_ELT_NAME Char
+#define VEC_ELT_T char
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
 
 // tile-label-specific
 
@@ -249,6 +102,12 @@ typedef struct {
   uint32_t ofs; // assume no overflow.
   uint32_t len;
 } OfsLen;
+
+#define VEC_ELT_NAME OfsLen
+#define VEC_ELT_T OfsLen
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
 
 // qc = qsort comparator
 
@@ -268,28 +127,27 @@ int qc_tiles_slices(const void *a, const void *b) {
   return 0;
 }
 
-static inline bool eql_tiles_slices(void *a, void *b) {
-  OfsLen aol = *(OfsLen *)a;
-  OfsLen bol = *(OfsLen *)b;
-  return aol.len == bol.len && !memcmp(qc_ref_tiles_bytes + aol.ofs, qc_ref_tiles_bytes + bol.ofs, aol.len);
+static inline bool eql_tiles_slices(OfsLen *a, OfsLen *b) {
+  return a->len == b->len && !memcmp(qc_ref_tiles_bytes + a->ofs, qc_ref_tiles_bytes + b->ofs, a->len);
 }
 
 // append-only list of words.
+
 typedef struct {
-  Vec tiles_slices; // Vec<ofs_len>
-  Vec tiles_bytes; // Vec<uint8_t>
+  VecOfsLen tiles_slices;
+  VecByte tiles_bytes;
 } Wordlist;
 
 static inline Wordlist wordlist_new(void) {
   return (Wordlist){
-      .tiles_slices = vec_new(sizeof(OfsLen)),
-      .tiles_bytes = vec_new(sizeof(uint8_t)),
+      .tiles_slices = vecOfsLen_new(),
+      .tiles_bytes = vecByte_new(),
     };
 }
 
 static inline void wordlist_free(Wordlist self[static 1]) {
-  vec_free(&self->tiles_bytes);
-  vec_free(&self->tiles_slices);
+  vecByte_free(&self->tiles_bytes);
+  vecOfsLen_free(&self->tiles_slices);
 }
 
 static inline void wordlist_sort(Wordlist self[static 1]) {
@@ -299,13 +157,13 @@ static inline void wordlist_sort(Wordlist self[static 1]) {
 
 static inline void wordlist_dedup(Wordlist self[static 1]) {
   size_t r = 1;
-  while (r < self->tiles_slices.len && !eql_tiles_slices(vec_get(&self->tiles_slices, r), vec_get(&self->tiles_slices, r - 1))) ++r;
+  while (r < self->tiles_slices.len && !eql_tiles_slices(&self->tiles_slices.ptr[r], &self->tiles_slices.ptr[r - 1])) ++r;
   if (r < self->tiles_slices.len) {
     // [r] == [r-1]
     size_t w = r;
     while (++r < self->tiles_slices.len) {
-      if (!eql_tiles_slices(vec_get(&self->tiles_slices, r), vec_get(&self->tiles_slices, w - 1))) {
-        memcpy(vec_get(&self->tiles_slices, w), vec_get(&self->tiles_slices, r), self->tiles_slices.elt_size);
+      if (!eql_tiles_slices(&self->tiles_slices.ptr[r], &self->tiles_slices.ptr[w - 1])) {
+        memcpy(&self->tiles_slices.ptr[w], &self->tiles_slices.ptr[r], sizeof(OfsLen));
         ++w;
       }
     }
@@ -322,30 +180,37 @@ typedef struct {
    bool accepts;
 } KwgcTransition;
 
+#define VEC_ELT_NAME KwgcTransition
+#define VEC_ELT_T KwgcTransition
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
+
 typedef struct {
-  Vec transitions; // Vec<kwgc_transition>
-  Vec indexes; // Vec<uint32_t>
+  VecKwgcTransition transitions; // Vec<kwgc_transition>
+  VecU32 indexes; // Vec<uint32_t>
 } KwgcTransitionStack;
 
 static inline KwgcTransitionStack kwgc_transition_stack_new(void) {
   return (KwgcTransitionStack){
-    .transitions = vec_new(sizeof(KwgcTransition)),
-    .indexes = vec_new(sizeof(uint32_t)),
+    .transitions = vecKwgcTransition_new(),
+    .indexes = vecU32_new(),
   };
 }
 
 static inline void kwgc_transition_stack_free(KwgcTransitionStack self[static 1]) {
-  vec_free(&self->indexes);
-  vec_free(&self->transitions);
+  vecU32_free(&self->indexes);
+  vecKwgcTransition_free(&self->transitions);
 }
 
 static inline void kwgc_transition_stack_push(KwgcTransitionStack self[static 1], uint8_t tile) {
-  vec_push(&self->transitions, &(KwgcTransition){
+  vecKwgcTransition_push(&self->transitions, &(KwgcTransition){
       .arc_index = 0, // filled up later
       .tile = tile,
       .accepts = false,
     });
-  vec_push(&self->indexes, &self->transitions.len);
+  uint32_t len = self->transitions.len;
+  vecU32_push(&self->indexes, &len);
 }
 
 typedef struct {
@@ -355,12 +220,17 @@ typedef struct {
   bool accepts;
 } KwgcState;
 
+#define VEC_ELT_NAME KwgcState
+#define VEC_ELT_T KwgcState
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
+
 static inline void do_hash(uint64_t *hash, uint8_t data) {
   *hash = (*hash * 3467) ^ (data ^ 0xff);
 }
 
-static inline uint64_t kwgc_state_hash(void *p) {
-  KwgcState *self = p;
+static inline uint64_t kwgc_state_hash(KwgcState self[static 1]) {
   uint64_t hash = 0;
   do_hash(&hash, self->tile);
   do_hash(&hash, self->accepts);
@@ -375,89 +245,101 @@ static inline uint64_t kwgc_state_hash(void *p) {
   return hash;
 }
 
-static inline bool kwgc_state_eql(void *pa, void *pb) {
-  KwgcState *a = pa, *b = pb;
+static inline bool kwgc_state_eql(KwgcState a[static 1], KwgcState b[static 1]) {
   return a->tile == b->tile &&
     a->accepts == b->accepts &&
     a->arc_index == b->arc_index &&
     a->next_index == b->next_index;
 }
 
+#define KHM_K_NAME KwgcState
+#define KHM_K_T KwgcState
+#define KHM_K_HASHFUNC kwgc_state_hash
+#define KHM_K_EQLFUNC kwgc_state_eql
+#define KHM_V_NAME U32
+#define KHM_V_T uint32_t
+#include "generic_khm.c"
+#undef KHM_V_T
+#undef KHM_V_NAME
+#undef KHM_K_EQLFUNC
+#undef KHM_K_HASHFUNC
+#undef KHM_K_T
+#undef KHM_K_NAME
+
 typedef struct {
-  Vec states; // Vec<kwgc_state>
-  Khm states_finder; // Khm<kwgc_state,uint32_t>
+  VecKwgcState states;
+  KhmKwgcStateU32 states_finder;
 } KwgcStateMaker;
 
 static inline KwgcStateMaker kwgc_state_maker_new(void) {
   return (KwgcStateMaker){
-      .states = vec_new(sizeof(KwgcState)),
-      .states_finder = khm_new(sizeof(KwgcState), sizeof(uint32_t)),
+      .states = vecKwgcState_new(),
+      .states_finder = khmKwgcStateU32_new(),
     };
 }
 
 static inline void kwgc_state_maker_free(KwgcStateMaker self[static 1]) {
-  khm_free(&self->states_finder);
-  vec_free(&self->states);
+  khmKwgcStateU32_free(&self->states_finder);
+  vecKwgcState_free(&self->states);
 }
 
-// node_transitions is vec<kwgc_transition>.
-static inline uint32_t kwgc_state_maker_make_state(KwgcStateMaker self[static 1], Vec node_transitions[static 1], size_t target_len) {
+static inline uint32_t kwgc_state_maker_make_state(KwgcStateMaker self[static 1], VecKwgcTransition node_transitions[static 1], size_t target_len) {
   uint32_t ret = 0;
   for (size_t i = node_transitions->len; i-- > target_len; ) {
-    KwgcTransition *node_transition = vec_get(node_transitions, i);
+    KwgcTransition *node_transition = &node_transitions->ptr[i];
     KwgcState state = {
         .arc_index = node_transition->arc_index,
         .next_index = ret,
         .tile = node_transition->tile,
         .accepts = node_transition->accepts,
       };
-    uint32_t *existing_state_index = khm_get(&self->states_finder, &state, kwgc_state_hash, kwgc_state_eql);
+    uint32_t *existing_state_index = khmKwgcStateU32_get(&self->states_finder, &state);
     if (existing_state_index) {
       ret = *existing_state_index;
     } else {
       ret = (uint32_t)self->states.len;
-      vec_push(&self->states, &state);
-      khm_set(&self->states_finder, &state, &ret, kwgc_state_hash, kwgc_state_eql);
+      vecKwgcState_push(&self->states, &state);
+      khmKwgcStateU32_set(&self->states_finder, &state, &ret);
     }
   }
   return ret;
 }
 
 static inline void kwgc_transition_stack_pop(KwgcTransitionStack self[static 1], KwgcStateMaker state_maker[static 1]) {
-  size_t start_of_batch = (size_t)*(uint32_t *)vec_get(&self->indexes, --self->indexes.len);
+  size_t start_of_batch = (size_t)self->indexes.ptr[--self->indexes.len];
   uint32_t new_arc_index = kwgc_state_maker_make_state(state_maker, &self->transitions, start_of_batch);
-  ((KwgcTransition *)vec_get(&self->transitions, start_of_batch - 1))->arc_index = new_arc_index;
+  self->transitions.ptr[start_of_batch - 1].arc_index = new_arc_index;
   self->transitions.len = start_of_batch;
 }
 
 static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1], Wordlist sorted_machine_words[static 1], uint32_t dawg_start_state, bool is_gaddag_phase) {
   KwgcTransitionStack transition_stack = kwgc_transition_stack_new();
   for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
-    OfsLen *this_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index);
+    OfsLen *this_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index];
     uint32_t prefix_len = 0;
     if (machine_word_index > 0) {
-      OfsLen *prev_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index - 1);
+      OfsLen *prev_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index - 1];
       uint32_t prev_word_len = transition_stack.indexes.len; // this can be one less than prev_word->len for gaddag.
       uint32_t min_word_len = prev_word_len < this_word->len ? prev_word_len : this_word->len;
       while (prefix_len < min_word_len &&
-          *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, prev_word->ofs + prefix_len) ==
-          *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + prefix_len))
+          sorted_machine_words->tiles_bytes.ptr[prev_word->ofs + prefix_len] ==
+          sorted_machine_words->tiles_bytes.ptr[this_word->ofs + prefix_len])
         ++prefix_len;
       for (uint32_t i = prefix_len; i < prev_word_len; ++i) {
         kwgc_transition_stack_pop(&transition_stack, self);
       }
     }
     for (uint32_t i = prefix_len; i < this_word->len; ++i) {
-      kwgc_transition_stack_push(&transition_stack, *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + i));
+      kwgc_transition_stack_push(&transition_stack, sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i]);
     }
-    if (is_gaddag_phase && !*(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + this_word->len - 1)) {
+    if (is_gaddag_phase && !sorted_machine_words->tiles_bytes.ptr[this_word->ofs + this_word->len - 1]) {
       --transition_stack.indexes.len;
       // gaddag["AC@"] points to dawg["CA"]
       uint32_t p = dawg_start_state;
       for (uint32_t i = this_word->len - 1; i > 0; --i) {
-        uint8_t sought_tile = *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + i - 1);
+        uint8_t sought_tile = sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1];
         while (true) {
-          KwgcState *pstate = vec_get(&self->states, p);
+          KwgcState *pstate = &self->states.ptr[p];
           if (pstate->tile == sought_tile) {
             p = pstate->arc_index;
             break;
@@ -465,9 +347,9 @@ static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1],
           p = pstate->next_index;
         }
       }
-      ((KwgcTransition *)vec_get(&transition_stack.transitions, transition_stack.transitions.len - 1))->arc_index = p;
+      transition_stack.transitions.ptr[transition_stack.transitions.len - 1].arc_index = p;
     } else {
-      ((KwgcTransition *)vec_get(&transition_stack.transitions, transition_stack.transitions.len - 1))->accepts = true;
+      transition_stack.transitions.ptr[transition_stack.transitions.len - 1].accepts = true;
     }
   }
   while (transition_stack.indexes.len) kwgc_transition_stack_pop(&transition_stack, self);
@@ -521,50 +403,49 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
   pout[3] = tile;
 }
 
-// ret = vec<uint32_t>, must initially be empty.
-void kwgc_build(Vec *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag) {
+// ret must initially be empty.
+void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag) {
   KwgcStateMaker state_maker = kwgc_state_maker_new();
   // The sink state always exists.
-  vec_push(&state_maker.states, &(KwgcState){
+  vecKwgcState_push(&state_maker.states, &(KwgcState){
       .arc_index = 0,
       .next_index = 0,
       .tile = 0,
       .accepts = false,
     });
-  uint32_t zero = 0;
-  khm_set(&state_maker.states_finder, vec_get(&state_maker.states, 0), &zero, kwgc_state_hash, kwgc_state_eql);
-  uint32_t dawg_start_state = kwgc_state_maker_make_dawg(&state_maker, sorted_machine_words, 0, false);
   uint32_t gaddag_start_state = 0;
+  khmKwgcStateU32_set(&state_maker.states_finder, state_maker.states.ptr, &gaddag_start_state);
+  uint32_t dawg_start_state = kwgc_state_maker_make_dawg(&state_maker, sorted_machine_words, 0, false);
   if (is_gaddag) {
     OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
     Wordlist gaddag_wl = wordlist_new();
     for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
-      OfsLen *this_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index);
+      OfsLen *this_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index];
       uint32_t prefix_len = 0;
       if (machine_word_index > 0) {
-        OfsLen *prev_word = vec_get(&sorted_machine_words->tiles_slices, machine_word_index - 1);
+        OfsLen *prev_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index - 1];
         uint32_t max_prefix_len = prev_word->len - 1; // - 1 because CAR -> CARE means we still need to emit RAC@.
         if (this_word->len < max_prefix_len) max_prefix_len = this_word->len;
         while (prefix_len < max_prefix_len &&
-            *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, prev_word->ofs + prefix_len) ==
-            *(uint8_t *)vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + prefix_len))
+            sorted_machine_words->tiles_bytes.ptr[prev_word->ofs + prefix_len] ==
+            sorted_machine_words->tiles_bytes.ptr[this_word->ofs + prefix_len])
           ++prefix_len;
       }
       // CARE = ERAC, RAC@, AC@, C@
       for (size_t i = this_word->len; i > 0; --i) {
-        vec_push(&gaddag_wl.tiles_bytes, vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + i - 1));
+        vecByte_push(&gaddag_wl.tiles_bytes, &sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1]);
       }
       cur_ofs_len.len = this_word->len;
-      vec_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
+      vecOfsLen_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
       cur_ofs_len.ofs += cur_ofs_len.len;
       uint8_t zero = 0;
       for (size_t j = this_word->len - 1; j > prefix_len; --j) {
         for (size_t i = j; i > 0; --i) {
-          vec_push(&gaddag_wl.tiles_bytes, vec_get(&sorted_machine_words->tiles_bytes, this_word->ofs + i - 1));
+          vecByte_push(&gaddag_wl.tiles_bytes, &sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1]);
         }
-        vec_push(&gaddag_wl.tiles_bytes, &zero);
+        vecByte_push(&gaddag_wl.tiles_bytes, &zero);
         cur_ofs_len.len = j + 1;
-        vec_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
+        vecOfsLen_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
         cur_ofs_len.ofs += cur_ofs_len.len;
       }
     }
@@ -575,7 +456,7 @@ void kwgc_build(Vec *ret, Wordlist sorted_machine_words[static 1], bool is_gadda
   uint32_t *prev_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   memset(prev_indexes, 0, state_maker.states.len * sizeof(uint32_t));
   for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-    prev_indexes[((KwgcState *)vec_get(&state_maker.states, p))->next_index] = p;
+    prev_indexes[state_maker.states.ptr[p].next_index] = p;
   }
   // prev_indexes[0] is garbage, does not matter.
   uint32_t *destination = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
@@ -598,16 +479,16 @@ void kwgc_build(Vec *ret, Wordlist sorted_machine_words[static 1], bool is_gadda
     kwgc_state_maker_free(&state_maker);
     return;
   }
-  vec_ensure_cap_exact(ret, ret->len = states_defragger.num_written);
-  kwgc_write_node((uint8_t *)vec_get(ret, 0), destination[dawg_start_state], true, false, 0);
-  if (is_gaddag) kwgc_write_node((uint8_t *)vec_get(ret, 1), destination[gaddag_start_state], true, false, 0);
+  vecU32_ensure_cap_exact(ret, ret->len = states_defragger.num_written);
+  kwgc_write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
+  if (is_gaddag) kwgc_write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
   for (uint32_t outer_p = 1; outer_p < state_maker.states.len; ++outer_p) {
     if (!prev_indexes[outer_p]) {
       uint32_t dp = destination[outer_p];
       if (dp) {
         for (uint32_t p = outer_p; ; ++dp) {
           KwgcState *state = states_defragger.states + p;
-          kwgc_write_node((uint8_t *)vec_get(ret, dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
+          kwgc_write_node((uint8_t *)(ret->ptr + dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
           if (!state->next_index) break;
           p = state->next_index;
         }
@@ -642,15 +523,15 @@ bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), int mode) {
   for (size_t i = 0; i < file_size; ) {
     ParsedTile parsed_tile = tileset_parse(file_content + i);
     if (parsed_tile.len && parsed_tile.index > 0) { // ignore blank
-      vec_push(&wl.tiles_bytes, &parsed_tile.index);
+      vecByte_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
       ++cur_ofs_len.len;
     } else if (file_content[i] <= ' ') {
       while (file_content[i] != '\n') ++i;
       ++i; // skip the newline
       if (cur_ofs_len.len > 0) {
-        if (mode == 2) qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, 1, qc_chr_cmp);
-        vec_push(&wl.tiles_slices, &cur_ofs_len);
+        if (mode == 2) qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
+        vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
         cur_ofs_len.ofs += cur_ofs_len.len;
         cur_ofs_len.len = 0;
       }
@@ -662,16 +543,16 @@ bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), int mode) {
   defer_free_file_content = false; free(file_content);
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
-  Vec ret = vec_new(sizeof(uint32_t)); defer_free_ret = true;
+  VecU32 ret = vecU32_new(); defer_free_ret = true;
   kwgc_build(&ret, &wl, mode == 1);
   if (!ret.len) goto errored;
   f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fwrite(ret.ptr, ret.elt_size, ret.len, f) != ret.len) { perror("fwrite"); goto errored; }
+  if (fwrite(ret.ptr, sizeof(uint32_t), ret.len, f) != ret.len) { perror("fwrite"); goto errored; }
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
   goto cleanup;
 errored: errored = true;
 cleanup:
-  if (defer_free_ret) vec_free(&ret);
+  if (defer_free_ret) vecU32_free(&ret);
   if (defer_free_wl) wordlist_free(&wl);
   if (defer_free_file_content) free(file_content);
   if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
@@ -700,7 +581,7 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *)) {
   for (size_t i = 0; i < file_size; ) {
     ParsedTile parsed_tile = tileset_parse(file_content + i);
     if (parsed_tile.len) { // allow blank
-      vec_push(&wl.tiles_bytes, &parsed_tile.index);
+      vecByte_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
       ++cur_ofs_len.len;
     } else if (file_content[i] == ',') {
@@ -714,20 +595,20 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *)) {
       }
       ++i; // skip the newline
       if (cur_ofs_len.len > 0) {
-        qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, 1, qc_chr_cmp);
+        qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
         if (this_is_big_endian) {
-          vec_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
-          vec_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
-          vec_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
-          vec_push(&wl.tiles_bytes, &val);
+          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
+          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
+          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
+          vecByte_push(&wl.tiles_bytes, (uint8_t *)&val);
         } else {
-          vec_push(&wl.tiles_bytes, &val);
-          vec_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
-          vec_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
-          vec_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
+          vecByte_push(&wl.tiles_bytes, (uint8_t *)&val);
+          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
+          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
+          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
         }
-        vec_push(&wl.tiles_slices, &cur_ofs_len);
-        cur_ofs_len.ofs += cur_ofs_len.len + 4;
+        vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
+        cur_ofs_len.ofs += cur_ofs_len.len + 4; // sizeof(float)
         cur_ofs_len.len = 0;
       }
     } else if (file_content[i] <= ' ' && !cur_ofs_len.len) {
@@ -741,38 +622,38 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *)) {
   defer_free_file_content = false; free(file_content);
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
-  Vec ret = vec_new(sizeof(uint32_t)); defer_free_ret = true;
+  VecU32 ret = vecU32_new(); defer_free_ret = true;
   kwgc_build(&ret, &wl, false);
   if (!ret.len) goto errored;
   size_t out_len = ret.len + wl.tiles_slices.len + 2;
-  uint8_t *out = malloc_or_die(out_len * 4); defer_free_out = true;
+  uint8_t *out = malloc_or_die(out_len * sizeof(uint32_t)); defer_free_out = true;
   uint8_t *pout = out;
   *pout++ = ret.len;
   *pout++ = ret.len >> 8;
   *pout++ = ret.len >> 16;
   *pout++ = ret.len >> 24;
-  memcpy(pout, ret.ptr, ret.len * ret.elt_size);
-  pout += ret.len * ret.elt_size;
+  memcpy(pout, ret.ptr, ret.len * sizeof(uint32_t));
+  pout += ret.len * sizeof(uint32_t);
   *pout++ = wl.tiles_slices.len;
   *pout++ = wl.tiles_slices.len >> 8;
   *pout++ = wl.tiles_slices.len >> 16;
   *pout++ = wl.tiles_slices.len >> 24;
   for (size_t i = 0; i < wl.tiles_slices.len; ++i) {
-    OfsLen *this_word = vec_get(&wl.tiles_slices, i);
-    uint8_t *p = vec_get(&wl.tiles_bytes, this_word->ofs + this_word->len);
+    OfsLen *this_word = &wl.tiles_slices.ptr[i];
+    uint8_t *p = &wl.tiles_bytes.ptr[this_word->ofs + this_word->len];
     *pout++ = *p++;
     *pout++ = *p++;
     *pout++ = *p++;
     *pout++ = *p++;
   }
   f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fwrite(out, 4, out_len, f) != out_len) { perror("fwrite"); goto errored; }
+  if (fwrite(out, sizeof(uint32_t), out_len, f) != out_len) { perror("fwrite"); goto errored; }
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
   goto cleanup;
 errored: errored = true;
 cleanup:
   if (defer_free_out) free(out);
-  if (defer_free_ret) vec_free(&ret);
+  if (defer_free_ret) vecU32_free(&ret);
   if (defer_free_wl) wordlist_free(&wl);
   if (defer_free_file_content) free(file_content);
   if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
@@ -781,12 +662,12 @@ cleanup:
 
 typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; // compiler-specific UB.
 
-void dump_kwg(KwgNode *kwg, Vec *word, uint32_t p, Tile tileset[static 1]) {
+void dump_kwg(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
     size_t len = orig_len + strlen(tileset[kwg[p].c].label);
-    vec_ensure_cap(word, len);
-    strcpy(vec_get(word, orig_len), tileset[kwg[p].c].label);
+    vecChar_ensure_cap(word, len);
+    strcpy(word->ptr + orig_len, tileset[kwg[p].c].label);
     word->len = len;
     if (kwg[p].d) printf("%.*s\n", (int)len, word->ptr);
     if (kwg[p].p) dump_kwg(kwg, word, kwg[p].p, tileset);
@@ -810,23 +691,23 @@ bool do_lang_rkwg(char **argv, Tile tileset[static 1]) {
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   KwgNode *kwg = (KwgNode *)file_content;
-  Vec word = vec_new(sizeof(uint8_t)); defer_free_word = true;
+  VecChar word = vecChar_new(); defer_free_word = true;
   dump_kwg(kwg, &word, kwg[0].p, tileset);
   goto cleanup;
 errored: errored = true;
 cleanup:
-  if (defer_free_word) vec_free(&word);
+  if (defer_free_word) vecChar_free(&word);
   if (defer_free_file_content) free(file_content);
   if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
   return !errored;
 }
 
-void dump_klv2(KwgNode *kwg, Vec *word, uint32_t p, Tile tileset[static 1], float **klv_ptr) {
+void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], float **klv_ptr) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
     size_t len = orig_len + strlen(tileset[kwg[p].c].label);
-    vec_ensure_cap(word, len);
-    strcpy(vec_get(word, orig_len), tileset[kwg[p].c].label);
+    vecChar_ensure_cap(word, len);
+    strcpy(word->ptr + orig_len, tileset[kwg[p].c].label);
     word->len = len;
     if (kwg[p].d) {
       // find the required precision between 1 and 16.
@@ -863,14 +744,14 @@ bool do_lang_rklv2(char **argv, Tile tileset[static 1]) {
   if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   uint32_t num_kwg_nodes = *(uint32_t *)file_content;
-  KwgNode *kwg = (KwgNode *)(file_content + 4);
-  float *klv_values = (float *)(file_content + 4 * (2 + num_kwg_nodes));
-  Vec word = vec_new(sizeof(uint8_t)); defer_free_word = true;
+  KwgNode *kwg = (KwgNode *)(file_content + sizeof(uint32_t));
+  float *klv_values = (float *)(file_content + sizeof(uint32_t) * (2 + num_kwg_nodes));
+  VecChar word = vecChar_new(); defer_free_word = true;
   dump_klv2(kwg, &word, kwg[0].p, tileset, &klv_values);
   goto cleanup;
 errored: errored = true;
 cleanup:
-  if (defer_free_word) vec_free(&word);
+  if (defer_free_word) vecChar_free(&word);
   if (defer_free_file_content) free(file_content);
   if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
   return !errored;
