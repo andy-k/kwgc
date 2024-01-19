@@ -5,7 +5,8 @@
 KWGC is an implementation of the Kurnia Word Graph Compiler.
 
 It is based on the original Rust implementation in Wolges.
-Please use that implementation. This implementation in C is much slower.
+
+Please use that implementation. This implementation in C is slower.
 
 ## License
 
