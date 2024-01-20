@@ -713,7 +713,7 @@ void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], 
       // find the required precision between 1 and 16.
       char s[128];
       float check;
-#define precision_le(n, t, f) (((sprintf(s, "%." #n "f", **klv_ptr), sscanf(s, "%f", &check)) == 1 && check == **klv_ptr) ? t : f)
+#define precision_le(n, t, f) (((snprintf(s, sizeof(s), "%." #n "f", **klv_ptr), sscanf(s, "%f", &check)) == 1 && check == **klv_ptr) ? t : f)
       int precision = precision_le(8,
         precision_le(4,
           precision_le(2, precision_le(1, 1, 2), precision_le(3, 3, 4)),
