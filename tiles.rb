@@ -2,20 +2,31 @@
 # Copyright (C) 2020-2024 Andy Kurnia.
 # throwaway script
 
+main_fn = "../wolges/src/alphabet.rs"
 lang = nil
 langs = []
 mappings = {}
 fwd_mappings = {}
+lang_src = {}
 for x in File.readlines("../wolges/src/alphabet.rs", chomp: true)
   if x =~ /\bfn make_(\w+)_alphabet\b/
     lang = $1
     langs << lang
     mappings[lang] ||= []
     fwd_mappings[lang] ||= []
-    idx = -1
-  elsif lang && x =~ /\btile!/
+    lang_src[lang] = nil
+  elsif lang && x =~ /\bnew_static_alphabet_from_file!/
+    lang_src[lang] = x.scan(/"([^"]*)"/).map(&:first)
+  end
+end
+for lang, fn in lang_src
+  idx = -1
+  for x in File.readlines(File.join("../wolges/src", fn), chomp: true)
     idx += 1
-    labels = x.scan(/"([^"]*)"/).map(&:first)
+    toks = x.split
+    num_alias_labels = toks[5].to_i
+    num_alias_blank_labels = toks[6 + num_alias_labels].to_i
+    labels = [*toks[0..1], *toks[6, num_alias_labels], *toks[7 + num_alias_labels, num_alias_blank_labels]]
     fwd_mappings[lang] << labels
     labels.each_with_index do |label, lidx|
       lbytes = label.bytes
