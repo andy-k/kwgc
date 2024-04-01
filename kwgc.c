@@ -360,17 +360,14 @@ static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1],
 
 typedef struct {
   KwgcState *states;
-  uint32_t *prev_indexes;
+  uint32_t *head_indexes;
   uint32_t *destination;
   uint32_t num_written;
 } KwgcStatesDefragger;
 
 void kwgc_states_defragger_defrag(KwgcStatesDefragger self[static 1], uint32_t p) {
-  while (true) {
-    uint32_t prev = self->prev_indexes[p];
-    if (!prev) break;
-    p = prev;
-  }
+  uint32_t head = self->head_indexes[p];
+  if (head) p = head;
   uint32_t *dp = self->destination + p;
   if (*dp) return;
   // temp value to break self-cycles.
@@ -453,17 +450,26 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     gaddag_start_state = kwgc_state_maker_make_dawg(&state_maker, &gaddag_wl, dawg_start_state, true);
     wordlist_free(&gaddag_wl);
   }
-  uint32_t *prev_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-  memset(prev_indexes, 0, state_maker.states.len * sizeof(uint32_t));
+  uint32_t *head_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
+  memset(head_indexes, 0, state_maker.states.len * sizeof(uint32_t));
+  // point to immediate prev.
   for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-    prev_indexes[state_maker.states.ptr[p].next_index] = p;
+    head_indexes[state_maker.states.ptr[p].next_index] = p;
   }
-  // prev_indexes[0] is garbage, does not matter.
+  // head_indexes[0] is garbage, does not matter.
+  // adjust to point to prev heads instead.
+  for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
+    uint32_t prev = head_indexes[p];
+    if (prev) {
+      uint32_t prev_head = head_indexes[prev];
+      if (prev_head) head_indexes[p] = prev_head;
+    }
+  }
   uint32_t *destination = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   memset(destination, 0, state_maker.states.len * sizeof(uint32_t));
   KwgcStatesDefragger states_defragger = {
       .states = (KwgcState *)state_maker.states.ptr,
-      .prev_indexes = prev_indexes,
+      .head_indexes = head_indexes,
       .destination = destination,
       .num_written = is_gaddag ? 2 : 1,
     };
@@ -475,7 +481,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     // the format can only have 0x400000 elements, each has 4 bytes
     fprintf(stderr, "this format cannot have %u nodes\n", states_defragger.num_written);
     free(destination);
-    free(prev_indexes);
+    free(head_indexes);
     kwgc_state_maker_free(&state_maker);
     return;
   }
@@ -483,7 +489,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   kwgc_write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
   if (is_gaddag) kwgc_write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
   for (uint32_t outer_p = 1; outer_p < state_maker.states.len; ++outer_p) {
-    if (!prev_indexes[outer_p]) {
+    if (!head_indexes[outer_p]) {
       uint32_t dp = destination[outer_p];
       if (dp) {
         for (uint32_t p = outer_p; ; ++dp) {
@@ -496,7 +502,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     }
   }
   free(destination);
-  free(prev_indexes);
+  free(head_indexes);
   kwgc_state_maker_free(&state_maker);
 }
 
