@@ -166,6 +166,209 @@ ParsedTile catalan_tileset_parse(uint8_t *ptr) {
   return (ParsedTile){ .len = 0, .index = 0 };
 }
 
+Tile decimal_tileset[] = {
+  { .label = "[0]", .blank_label = "[-0]" }, // 0
+  { .label = "[1]", .blank_label = "[-1]" }, // 1
+  { .label = "[2]", .blank_label = "[-2]" }, // 2
+  { .label = "[3]", .blank_label = "[-3]" }, // 3
+  { .label = "[4]", .blank_label = "[-4]" }, // 4
+  { .label = "[5]", .blank_label = "[-5]" }, // 5
+  { .label = "[6]", .blank_label = "[-6]" }, // 6
+  { .label = "[7]", .blank_label = "[-7]" }, // 7
+  { .label = "[8]", .blank_label = "[-8]" }, // 8
+  { .label = "[9]", .blank_label = "[-9]" }, // 9
+  { .label = "[10]", .blank_label = "[-10]" }, // 10
+  { .label = "[11]", .blank_label = "[-11]" }, // 11
+  { .label = "[12]", .blank_label = "[-12]" }, // 12
+  { .label = "[13]", .blank_label = "[-13]" }, // 13
+  { .label = "[14]", .blank_label = "[-14]" }, // 14
+  { .label = "[15]", .blank_label = "[-15]" }, // 15
+  { .label = "[16]", .blank_label = "[-16]" }, // 16
+  { .label = "[17]", .blank_label = "[-17]" }, // 17
+  { .label = "[18]", .blank_label = "[-18]" }, // 18
+  { .label = "[19]", .blank_label = "[-19]" }, // 19
+  { .label = "[20]", .blank_label = "[-20]" }, // 20
+  { .label = "[21]", .blank_label = "[-21]" }, // 21
+  { .label = "[22]", .blank_label = "[-22]" }, // 22
+  { .label = "[23]", .blank_label = "[-23]" }, // 23
+  { .label = "[24]", .blank_label = "[-24]" }, // 24
+  { .label = "[25]", .blank_label = "[-25]" }, // 25
+  { .label = "[26]", .blank_label = "[-26]" }, // 26
+  { .label = "[27]", .blank_label = "[-27]" }, // 27
+  { .label = "[28]", .blank_label = "[-28]" }, // 28
+  { .label = "[29]", .blank_label = "[-29]" }, // 29
+  { .label = "[30]", .blank_label = "[-30]" }, // 30
+  { .label = "[31]", .blank_label = "[-31]" }, // 31
+  { .label = "[32]", .blank_label = "[-32]" }, // 32
+  { .label = "[33]", .blank_label = "[-33]" }, // 33
+  { .label = "[34]", .blank_label = "[-34]" }, // 34
+  { .label = "[35]", .blank_label = "[-35]" }, // 35
+  { .label = "[36]", .blank_label = "[-36]" }, // 36
+  { .label = "[37]", .blank_label = "[-37]" }, // 37
+  { .label = "[38]", .blank_label = "[-38]" }, // 38
+  { .label = "[39]", .blank_label = "[-39]" }, // 39
+  { .label = "[40]", .blank_label = "[-40]" }, // 40
+  { .label = "[41]", .blank_label = "[-41]" }, // 41
+  { .label = "[42]", .blank_label = "[-42]" }, // 42
+  { .label = "[43]", .blank_label = "[-43]" }, // 43
+  { .label = "[44]", .blank_label = "[-44]" }, // 44
+  { .label = "[45]", .blank_label = "[-45]" }, // 45
+  { .label = "[46]", .blank_label = "[-46]" }, // 46
+  { .label = "[47]", .blank_label = "[-47]" }, // 47
+  { .label = "[48]", .blank_label = "[-48]" }, // 48
+  { .label = "[49]", .blank_label = "[-49]" }, // 49
+  { .label = "[50]", .blank_label = "[-50]" }, // 50
+  { .label = "[51]", .blank_label = "[-51]" }, // 51
+  { .label = "[52]", .blank_label = "[-52]" }, // 52
+  { .label = "[53]", .blank_label = "[-53]" }, // 53
+  { .label = "[54]", .blank_label = "[-54]" }, // 54
+  { .label = "[55]", .blank_label = "[-55]" }, // 55
+  { .label = "[56]", .blank_label = "[-56]" }, // 56
+  { .label = "[57]", .blank_label = "[-57]" }, // 57
+  { .label = "[58]", .blank_label = "[-58]" }, // 58
+  { .label = "[59]", .blank_label = "[-59]" }, // 59
+  { .label = "[60]", .blank_label = "[-60]" }, // 60
+  { .label = "[61]", .blank_label = "[-61]" }, // 61
+  { .label = "[62]", .blank_label = "[-62]" }, // 62
+  { .label = "[63]", .blank_label = "[-63]" }, // 63
+};
+
+ParsedTile decimal_tileset_parse(uint8_t *ptr) {
+  switch (*ptr) {
+  case 0x5b:
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x30 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 10 }; // [-10]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x31 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 11 }; // [-11]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x32 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 12 }; // [-12]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x33 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 13 }; // [-13]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x34 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 14 }; // [-14]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x35 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 15 }; // [-15]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x36 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 16 }; // [-16]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x37 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 17 }; // [-17]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x38 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 18 }; // [-18]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x39 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 19 }; // [-19]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x30 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 20 }; // [-20]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x31 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 21 }; // [-21]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x32 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 22 }; // [-22]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x33 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 23 }; // [-23]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x34 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 24 }; // [-24]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x35 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 25 }; // [-25]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x36 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 26 }; // [-26]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x37 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 27 }; // [-27]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x38 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 28 }; // [-28]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x39 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 29 }; // [-29]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x30 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 30 }; // [-30]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x31 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 31 }; // [-31]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x32 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 32 }; // [-32]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x33 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 33 }; // [-33]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x34 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 34 }; // [-34]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x35 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 35 }; // [-35]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x36 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 36 }; // [-36]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x37 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 37 }; // [-37]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x38 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 38 }; // [-38]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x39 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 39 }; // [-39]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x30 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 40 }; // [-40]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x31 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 41 }; // [-41]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x32 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 42 }; // [-42]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x33 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 43 }; // [-43]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x34 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 44 }; // [-44]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x35 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 45 }; // [-45]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x36 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 46 }; // [-46]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x37 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 47 }; // [-47]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x38 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 48 }; // [-48]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x39 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 49 }; // [-49]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x30 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 50 }; // [-50]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x31 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 51 }; // [-51]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x32 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 52 }; // [-52]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x33 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 53 }; // [-53]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x34 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 54 }; // [-54]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x35 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 55 }; // [-55]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x36 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 56 }; // [-56]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x37 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 57 }; // [-57]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x38 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 58 }; // [-58]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x39 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 59 }; // [-59]
+    if (ptr[1] == 0x2d && ptr[2] == 0x36 && ptr[3] == 0x30 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 60 }; // [-60]
+    if (ptr[1] == 0x2d && ptr[2] == 0x36 && ptr[3] == 0x31 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 61 }; // [-61]
+    if (ptr[1] == 0x2d && ptr[2] == 0x36 && ptr[3] == 0x32 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 62 }; // [-62]
+    if (ptr[1] == 0x2d && ptr[2] == 0x36 && ptr[3] == 0x33 && ptr[4] == 0x5d) return (ParsedTile){ .len = 5, .index = 63 }; // [-63]
+    if (ptr[1] == 0x2d && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 0 }; // [-0]
+    if (ptr[1] == 0x2d && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 1 }; // [-1]
+    if (ptr[1] == 0x2d && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 2 }; // [-2]
+    if (ptr[1] == 0x2d && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 3 }; // [-3]
+    if (ptr[1] == 0x2d && ptr[2] == 0x34 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 4 }; // [-4]
+    if (ptr[1] == 0x2d && ptr[2] == 0x35 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 5 }; // [-5]
+    if (ptr[1] == 0x2d && ptr[2] == 0x36 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 6 }; // [-6]
+    if (ptr[1] == 0x2d && ptr[2] == 0x37 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 7 }; // [-7]
+    if (ptr[1] == 0x2d && ptr[2] == 0x38 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 8 }; // [-8]
+    if (ptr[1] == 0x2d && ptr[2] == 0x39 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 9 }; // [-9]
+    if (ptr[1] == 0x31 && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 10 }; // [10]
+    if (ptr[1] == 0x31 && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 11 }; // [11]
+    if (ptr[1] == 0x31 && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 12 }; // [12]
+    if (ptr[1] == 0x31 && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 13 }; // [13]
+    if (ptr[1] == 0x31 && ptr[2] == 0x34 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 14 }; // [14]
+    if (ptr[1] == 0x31 && ptr[2] == 0x35 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 15 }; // [15]
+    if (ptr[1] == 0x31 && ptr[2] == 0x36 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 16 }; // [16]
+    if (ptr[1] == 0x31 && ptr[2] == 0x37 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 17 }; // [17]
+    if (ptr[1] == 0x31 && ptr[2] == 0x38 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 18 }; // [18]
+    if (ptr[1] == 0x31 && ptr[2] == 0x39 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 19 }; // [19]
+    if (ptr[1] == 0x32 && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 20 }; // [20]
+    if (ptr[1] == 0x32 && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 21 }; // [21]
+    if (ptr[1] == 0x32 && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 22 }; // [22]
+    if (ptr[1] == 0x32 && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 23 }; // [23]
+    if (ptr[1] == 0x32 && ptr[2] == 0x34 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 24 }; // [24]
+    if (ptr[1] == 0x32 && ptr[2] == 0x35 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 25 }; // [25]
+    if (ptr[1] == 0x32 && ptr[2] == 0x36 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 26 }; // [26]
+    if (ptr[1] == 0x32 && ptr[2] == 0x37 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 27 }; // [27]
+    if (ptr[1] == 0x32 && ptr[2] == 0x38 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 28 }; // [28]
+    if (ptr[1] == 0x32 && ptr[2] == 0x39 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 29 }; // [29]
+    if (ptr[1] == 0x33 && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 30 }; // [30]
+    if (ptr[1] == 0x33 && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 31 }; // [31]
+    if (ptr[1] == 0x33 && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 32 }; // [32]
+    if (ptr[1] == 0x33 && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 33 }; // [33]
+    if (ptr[1] == 0x33 && ptr[2] == 0x34 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 34 }; // [34]
+    if (ptr[1] == 0x33 && ptr[2] == 0x35 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 35 }; // [35]
+    if (ptr[1] == 0x33 && ptr[2] == 0x36 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 36 }; // [36]
+    if (ptr[1] == 0x33 && ptr[2] == 0x37 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 37 }; // [37]
+    if (ptr[1] == 0x33 && ptr[2] == 0x38 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 38 }; // [38]
+    if (ptr[1] == 0x33 && ptr[2] == 0x39 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 39 }; // [39]
+    if (ptr[1] == 0x34 && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 40 }; // [40]
+    if (ptr[1] == 0x34 && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 41 }; // [41]
+    if (ptr[1] == 0x34 && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 42 }; // [42]
+    if (ptr[1] == 0x34 && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 43 }; // [43]
+    if (ptr[1] == 0x34 && ptr[2] == 0x34 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 44 }; // [44]
+    if (ptr[1] == 0x34 && ptr[2] == 0x35 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 45 }; // [45]
+    if (ptr[1] == 0x34 && ptr[2] == 0x36 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 46 }; // [46]
+    if (ptr[1] == 0x34 && ptr[2] == 0x37 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 47 }; // [47]
+    if (ptr[1] == 0x34 && ptr[2] == 0x38 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 48 }; // [48]
+    if (ptr[1] == 0x34 && ptr[2] == 0x39 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 49 }; // [49]
+    if (ptr[1] == 0x35 && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 50 }; // [50]
+    if (ptr[1] == 0x35 && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 51 }; // [51]
+    if (ptr[1] == 0x35 && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 52 }; // [52]
+    if (ptr[1] == 0x35 && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 53 }; // [53]
+    if (ptr[1] == 0x35 && ptr[2] == 0x34 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 54 }; // [54]
+    if (ptr[1] == 0x35 && ptr[2] == 0x35 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 55 }; // [55]
+    if (ptr[1] == 0x35 && ptr[2] == 0x36 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 56 }; // [56]
+    if (ptr[1] == 0x35 && ptr[2] == 0x37 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 57 }; // [57]
+    if (ptr[1] == 0x35 && ptr[2] == 0x38 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 58 }; // [58]
+    if (ptr[1] == 0x35 && ptr[2] == 0x39 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 59 }; // [59]
+    if (ptr[1] == 0x36 && ptr[2] == 0x30 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 60 }; // [60]
+    if (ptr[1] == 0x36 && ptr[2] == 0x31 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 61 }; // [61]
+    if (ptr[1] == 0x36 && ptr[2] == 0x32 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 62 }; // [62]
+    if (ptr[1] == 0x36 && ptr[2] == 0x33 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 63 }; // [63]
+    if (ptr[1] == 0x30 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 0 }; // [0]
+    if (ptr[1] == 0x31 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 1 }; // [1]
+    if (ptr[1] == 0x32 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 2 }; // [2]
+    if (ptr[1] == 0x33 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 3 }; // [3]
+    if (ptr[1] == 0x34 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 4 }; // [4]
+    if (ptr[1] == 0x35 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 5 }; // [5]
+    if (ptr[1] == 0x36 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 6 }; // [6]
+    if (ptr[1] == 0x37 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 7 }; // [7]
+    if (ptr[1] == 0x38 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 8 }; // [8]
+    if (ptr[1] == 0x39 && ptr[2] == 0x5d) return (ParsedTile){ .len = 3, .index = 9 }; // [9]
+    break;
+  }
+  return (ParsedTile){ .len = 0, .index = 0 };
+}
+
 Tile english_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
