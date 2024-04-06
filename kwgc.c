@@ -8,6 +8,14 @@
 #include <string.h>
 #include <sys/time.h>
 
+typedef enum {
+    BuildLayout_Legacy,
+    BuildLayout_Magpie,
+    BuildLayout_MagpieMerged,
+    BuildLayout_Experimental,
+    BuildLayout_Wolges,
+} BuildLayout;
+
 // endian helpers
 
 bool is_big_endian(void) {
@@ -366,7 +374,7 @@ typedef struct {
   uint32_t num_written;
 } KwgcStatesDefragger;
 
-void kwgc_states_defragger_defrag(KwgcStatesDefragger self[static 1], uint32_t p) {
+void kwgc_states_defragger_defrag_legacy(KwgcStatesDefragger self[static 1], uint32_t p) {
   p = self->head_indexes[p];
   uint32_t *dp = self->destination + p;
   if (*dp) return;
@@ -376,7 +384,7 @@ void kwgc_states_defragger_defrag(KwgcStatesDefragger self[static 1], uint32_t p
   uint32_t write_p = p;
   while (true) {
     uint32_t a = self->states[p].arc_index;
-    if (a) kwgc_states_defragger_defrag(self, a);
+    if (a) kwgc_states_defragger_defrag_legacy(self, a);
     p = self->states[p].next_index;
     if (!p) break;
   }
@@ -401,7 +409,15 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
 }
 
 // ret must initially be empty.
-void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag) {
+void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout) {
+  switch (build_layout) {
+    case BuildLayout_Wolges: build_layout = BuildLayout_Legacy;
+    case BuildLayout_Legacy: break;
+    case BuildLayout_Magpie:
+    case BuildLayout_MagpieMerged:
+    case BuildLayout_Experimental:
+    default: fputs("unsupported build layout\n", stderr); abort();
+  }
   KwgcStateMaker state_maker = kwgc_state_maker_new();
   // The sink state always exists.
   vecKwgcState_push(&state_maker.states, &(KwgcState){
@@ -477,8 +493,17 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       .num_written = is_gaddag ? 2 : 1,
     };
   destination[0] = (uint32_t)~0; // useful for empty lexicon.
-  kwgc_states_defragger_defrag(&states_defragger, dawg_start_state);
-  if (is_gaddag) kwgc_states_defragger_defrag(&states_defragger, gaddag_start_state);
+  switch (build_layout) {
+    case BuildLayout_Legacy:
+      kwgc_states_defragger_defrag_legacy(&states_defragger, dawg_start_state);
+      if (is_gaddag) kwgc_states_defragger_defrag_legacy(&states_defragger, gaddag_start_state);
+      break;
+    case BuildLayout_Magpie:
+    case BuildLayout_MagpieMerged:
+    case BuildLayout_Experimental:
+    case BuildLayout_Wolges:
+    default: fputs("unsupported build layout\n", stderr); abort();
+  }
   destination[0] = 0; // useful for empty lexicon.
   if (states_defragger.num_written > 0x400000) {
     // the format can only have 0x400000 elements, each has 4 bytes
@@ -511,7 +536,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
 
 // commands
 
-bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), int mode) {
+bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, int mode) {
   // assume argc >= 4. mode in [0 (dawgonly), 1 (gaddawg), 2 (alpha)].
   bool errored = false;
   bool defer_fclose = false;
@@ -553,7 +578,7 @@ bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), int mode) {
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  kwgc_build(&ret, &wl, mode == 1);
+  kwgc_build(&ret, &wl, mode == 1, build_layout);
   if (!ret.len) goto errored;
   f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
   if (fwrite(ret.ptr, sizeof(uint32_t), ret.len, f) != ret.len) { perror("fwrite"); goto errored; }
@@ -568,7 +593,7 @@ cleanup:
   return !errored;
 }
 
-bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *)) {
+bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout) {
   bool errored = false;
   bool defer_fclose = false;
   bool defer_free_file_content = false;
@@ -632,7 +657,7 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *)) {
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  kwgc_build(&ret, &wl, false);
+  kwgc_build(&ret, &wl, false, build_layout);
   if (!ret.len) goto errored;
   size_t out_len = ret.len + wl.tiles_slices.len + 2;
   uint8_t *out = malloc_or_die(out_len * sizeof(uint32_t)); defer_free_out = true;
@@ -793,21 +818,40 @@ cleanup:
 }
 
 bool do_lang(int argc, char **argv, const char lang_name[static 1], ParsedTile tileset_parse(uint8_t *), Tile tileset[static 1]) {
-  const size_t lang_name_len = strlen(lang_name);
+  size_t lang_name_len = strlen(lang_name);
   if (!(argc > 1 && !strncmp(argv[1], lang_name, lang_name_len))) {
     return false;
+  }
+  BuildLayout build_layout;
+  if (false) {
+  } else if (!strncmp(argv[1] + lang_name_len, "-magpiemerged", strlen("-magpiemerged"))) {
+    lang_name_len += strlen("-magpiemerged");
+    build_layout = BuildLayout_MagpieMerged;
+  } else if (!strncmp(argv[1] + lang_name_len, "-magpie", strlen("-magpie"))) {
+    lang_name_len += strlen("-magpie");
+    build_layout = BuildLayout_Magpie;
+  } else if (!strncmp(argv[1] + lang_name_len, "-legacy", strlen("-legacy"))) {
+    lang_name_len += strlen("-legacy");
+    build_layout = BuildLayout_Legacy;
+  } else if (!strncmp(argv[1] + lang_name_len, "-experimental", strlen("-experimental"))) {
+    lang_name_len += strlen("-experimental");
+    build_layout = BuildLayout_Experimental;
+  } else {
+    build_layout = BuildLayout_Wolges;
+  }
+  if (false) {
   } else if (!strcmp(argv[1] + lang_name_len, "-klv2")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_klv2(argv, tileset_parse);
+    return do_lang_klv2(argv, tileset_parse, build_layout);
   } else if (!strcmp(argv[1] + lang_name_len, "-kwg")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, 1);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 1);
   } else if (!strcmp(argv[1] + lang_name_len, "-kwg-alpha")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, 2);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 2);
   } else if (!strcmp(argv[1] + lang_name_len, "-kwg-dawg")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, 0);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 0);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
