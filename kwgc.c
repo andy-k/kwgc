@@ -361,6 +361,7 @@ static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1],
 typedef struct {
   KwgcState *states;
   uint32_t *head_indexes;
+  uint32_t *to_end_lens; // using uint8_t costs runtime.
   uint32_t *destination;
   uint32_t num_written;
 } KwgcStatesDefragger;
@@ -370,23 +371,23 @@ void kwgc_states_defragger_defrag(KwgcStatesDefragger self[static 1], uint32_t p
   if (head) p = head;
   uint32_t *dp = self->destination + p;
   if (*dp) return;
+  uint32_t num = self->to_end_lens[p];
   // temp value to break self-cycles.
   *dp = (uint32_t)~0;
   uint32_t write_p = p;
-  uint32_t num = 0;
   while (true) {
-    ++num;
     uint32_t a = self->states[p].arc_index;
     if (a) kwgc_states_defragger_defrag(self, a);
     p = self->states[p].next_index;
     if (!p) break;
   }
+  uint32_t initial_num_written = self->num_written;
   *dp = 0;
   for (uint32_t ofs = 0; ofs < num; ++ofs) {
     // prefer earlier index, so dawg part does not point to gaddag part.
     dp = self->destination + write_p;
     if (*dp) break;
-    *dp = self->num_written + ofs;
+    *dp = initial_num_written + ofs;
     write_p = self->states[write_p].next_index;
   }
   // Always += num even if some nodes are necessarily duplicated due to sharing by different prev_nodes.
@@ -465,11 +466,18 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       if (prev_head) head_indexes[p] = prev_head;
     }
   }
+  uint32_t *to_end_lens = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
+  for (uint32_t p = 0; p < state_maker.states.len; ++p) {
+    to_end_lens[p] = 1;
+    uint32_t next = state_maker.states.ptr[p].next_index;
+    if (next) to_end_lens[p] += to_end_lens[next];
+  }
   uint32_t *destination = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   memset(destination, 0, state_maker.states.len * sizeof(uint32_t));
   KwgcStatesDefragger states_defragger = {
       .states = (KwgcState *)state_maker.states.ptr,
       .head_indexes = head_indexes,
+      .to_end_lens = to_end_lens,
       .destination = destination,
       .num_written = is_gaddag ? 2 : 1,
     };
@@ -481,6 +489,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     // the format can only have 0x400000 elements, each has 4 bytes
     fprintf(stderr, "this format cannot have %u nodes\n", states_defragger.num_written);
     free(destination);
+    free(to_end_lens);
     free(head_indexes);
     kwgc_state_maker_free(&state_maker);
     return;
@@ -502,6 +511,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     }
   }
   free(destination);
+  free(to_end_lens);
   free(head_indexes);
   kwgc_state_maker_free(&state_maker);
 }
