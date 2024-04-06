@@ -401,6 +401,49 @@ void kwgc_states_defragger_defrag_legacy(KwgcStatesDefragger self[static 1], uin
   self->num_written += num;
 }
 
+void kwgc_states_defragger_defrag_magpie(KwgcStatesDefragger self[static 1], uint32_t p) {
+  uint32_t *dp = self->destination + p;
+  if (*dp) return;
+  *dp = self->num_written;
+  // non-legacy mode reserves the space first.
+  uint32_t num = self->to_end_lens[p];
+  self->num_written += num;
+  while (true) {
+    uint32_t a = self->states[p].arc_index;
+    if (a) kwgc_states_defragger_defrag_magpie(self, a);
+    p = self->states[p].next_index;
+    if (!p) break;
+  }
+}
+
+void kwgc_states_defragger_defrag_magpie_merged(KwgcStatesDefragger self[static 1], uint32_t p) {
+  p = self->head_indexes[p];
+  uint32_t *dp = self->destination + p;
+  if (*dp) return;
+  uint32_t initial_num_written = self->num_written;
+  // temp value to break self-cycles.
+  *dp = (uint32_t)~0;
+  // non-legacy mode reserves the space first.
+  uint32_t num = self->to_end_lens[p];
+  self->num_written += num;
+  uint32_t write_p = p;
+  while (true) {
+    uint32_t a = self->states[p].arc_index;
+    if (a) kwgc_states_defragger_defrag_magpie_merged(self, a);
+    p = self->states[p].next_index;
+    if (!p) break;
+  }
+  *dp = 0;
+  for (uint32_t ofs = 0; ofs < num; ++ofs) {
+    // prefer earlier index, so dawg part does not point to gaddag part.
+    dp = self->destination + write_p;
+    if (*dp) break;
+    *dp = initial_num_written + ofs;
+    write_p = self->states[write_p].next_index;
+  }
+  // non-legacy mode already reserves the space.
+}
+
 static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, bool is_end, bool accepts, uint8_t tile) {
   pout[0] = defragged_arc_index;
   pout[1] = defragged_arc_index >> 8;
@@ -413,8 +456,8 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   switch (build_layout) {
     case BuildLayout_Wolges: build_layout = BuildLayout_Legacy;
     case BuildLayout_Legacy: break;
-    case BuildLayout_Magpie:
-    case BuildLayout_MagpieMerged:
+    case BuildLayout_Magpie: break;
+    case BuildLayout_MagpieMerged: break;
     case BuildLayout_Experimental:
     default: fputs("unsupported build layout\n", stderr); abort();
   }
@@ -466,16 +509,21 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     gaddag_start_state = kwgc_state_maker_make_dawg(&state_maker, &gaddag_wl, dawg_start_state, true);
     wordlist_free(&gaddag_wl);
   }
-  uint32_t *head_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-  for (uint32_t p = 0; p < state_maker.states.len; ++p) head_indexes[p] = p;
-  // point to immediate prev.
-  for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-    head_indexes[state_maker.states.ptr[p].next_index] = p;
-  }
-  // head_indexes[0] is garbage, does not matter.
-  // adjust to point to prev heads instead.
-  for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-    head_indexes[p] = head_indexes[head_indexes[p]];
+  uint32_t *head_indexes = NULL;
+  switch (build_layout) {
+    case BuildLayout_Magpie: break;
+    default:
+      head_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
+      for (uint32_t p = 0; p < state_maker.states.len; ++p) head_indexes[p] = p;
+      // point to immediate prev.
+      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
+        head_indexes[state_maker.states.ptr[p].next_index] = p;
+      }
+      // head_indexes[0] is garbage, does not matter.
+      // adjust to point to prev heads instead.
+      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
+        head_indexes[p] = head_indexes[head_indexes[p]];
+      }
   }
   uint32_t *to_end_lens = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   for (uint32_t p = 0; p < state_maker.states.len; ++p) {
@@ -499,7 +547,13 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       if (is_gaddag) kwgc_states_defragger_defrag_legacy(&states_defragger, gaddag_start_state);
       break;
     case BuildLayout_Magpie:
+      kwgc_states_defragger_defrag_magpie(&states_defragger, dawg_start_state);
+      if (is_gaddag) kwgc_states_defragger_defrag_magpie(&states_defragger, gaddag_start_state);
+      break;
     case BuildLayout_MagpieMerged:
+      kwgc_states_defragger_defrag_magpie_merged(&states_defragger, dawg_start_state);
+      if (is_gaddag) kwgc_states_defragger_defrag_magpie_merged(&states_defragger, gaddag_start_state);
+      break;
     case BuildLayout_Experimental:
     case BuildLayout_Wolges:
     default: fputs("unsupported build layout\n", stderr); abort();
@@ -904,6 +958,10 @@ int main(int argc, char **argv) {
       "    generate kad file containing alpha dawg\n"
       "  english-kwg-dawg CSW21.txt outfile.dwg\n"
       "    generate dawg-only file\n"
+      "  (english-... can also be english-magpie-... for bigger magpie-style kwg,\n"
+      "    english-magpiemerged-... for magpie ordering with wolges merging,\n"
+      "    english-legacy-... for legacy (which is the default),\n"
+      "    this is applicable for kwg, kwg-anything, klv2)\n"
       "  english-read-kwg infile.kwg\n"
       "    read kwg on a little-endian system (dawg part only)\n"
       "  english-read-kwg-gaddag infile.kwg\n"
