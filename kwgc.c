@@ -367,8 +367,7 @@ typedef struct {
 } KwgcStatesDefragger;
 
 void kwgc_states_defragger_defrag(KwgcStatesDefragger self[static 1], uint32_t p) {
-  uint32_t head = self->head_indexes[p];
-  if (head) p = head;
+  p = self->head_indexes[p];
   uint32_t *dp = self->destination + p;
   if (*dp) return;
   uint32_t num = self->to_end_lens[p];
@@ -452,7 +451,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     wordlist_free(&gaddag_wl);
   }
   uint32_t *head_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-  memset(head_indexes, 0, state_maker.states.len * sizeof(uint32_t));
+  for (uint32_t p = 0; p < state_maker.states.len; ++p) head_indexes[p] = p;
   // point to immediate prev.
   for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
     head_indexes[state_maker.states.ptr[p].next_index] = p;
@@ -460,11 +459,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   // head_indexes[0] is garbage, does not matter.
   // adjust to point to prev heads instead.
   for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-    uint32_t prev = head_indexes[p];
-    if (prev) {
-      uint32_t prev_head = head_indexes[prev];
-      if (prev_head) head_indexes[p] = prev_head;
-    }
+    head_indexes[p] = head_indexes[head_indexes[p]];
   }
   uint32_t *to_end_lens = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   for (uint32_t p = 0; p < state_maker.states.len; ++p) {
@@ -498,15 +493,13 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   kwgc_write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
   if (is_gaddag) kwgc_write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
   for (uint32_t outer_p = 1; outer_p < state_maker.states.len; ++outer_p) {
-    if (!head_indexes[outer_p]) {
-      uint32_t dp = destination[outer_p];
-      if (dp) {
-        for (uint32_t p = outer_p; ; ++dp) {
-          KwgcState *state = states_defragger.states + p;
-          kwgc_write_node((uint8_t *)(ret->ptr + dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
-          if (!state->next_index) break;
-          p = state->next_index;
-        }
+    uint32_t dp = destination[outer_p];
+    if (dp) {
+      for (uint32_t p = outer_p; ; ++dp) {
+        KwgcState *state = states_defragger.states + p;
+        kwgc_write_node((uint8_t *)(ret->ptr + dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
+        if (!state->next_index) break;
+        p = state->next_index;
       }
     }
   }
