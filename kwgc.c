@@ -274,6 +274,8 @@ static inline bool kwgc_state_eql(KwgcState a[static 1], KwgcState b[static 1]) 
 #undef KHM_K_T
 #undef KHM_K_NAME
 
+// for each i > 0, states[i].arc_index < i and states[i].next_index < i.
+// this ensures states is already a topologically sorted DAG.
 typedef struct {
   VecKwgcState states;
   KhmKwgcStateU32 states_finder;
@@ -368,6 +370,7 @@ static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1],
 
 typedef struct {
   KwgcState *states;
+  uint32_t states_len;
   uint32_t *head_indexes;
   uint32_t *to_end_lens; // using uint8_t costs runtime.
   uint32_t *destination;
@@ -444,6 +447,214 @@ void kwgc_states_defragger_defrag_magpie_merged(KwgcStatesDefragger self[static 
   // non-legacy mode already reserves the space.
 }
 
+// Each block has 16 entries (hardcoded).
+// 16 entries of u32 make 64 bytes, which is a common cache line size.
+// 0 <= block_len[i] <= 16, from (i << 4) the first block_len[i] are occupied.
+// If block_len[i] < 16, blocks_with_len[block_len[i]] stack includes i.
+typedef struct {
+  VecByte block_len;
+  VecU32 blocks_with_len[16];
+} KwgcStatesDefraggerExperimentalParams;
+
+static inline void kwgc_states_defragger_defrag_cache_friendly(KwgcStatesDefragger self[static 1], KwgcStatesDefraggerExperimentalParams params[static 1], uint32_t p) {
+  p = self->head_indexes[p];
+  uint32_t *dp = self->destination + p;
+  if (*dp) return;
+  // temp value to break self-cycles.
+  *dp = (uint32_t)~0;
+  // non-legacy mode reserves the space first.
+  uint32_t num = self->to_end_lens[p];
+  // choose a cache-friendly page to place these.
+  uint32_t num_blocks = params->block_len.len;
+  uint32_t initial_num_written = 0;
+  if (num > 16) {
+    uint8_t tmp_u8 = 0;
+    // always even-align for 128 byte cache line machines.
+    if ((num_blocks & 1) == 1) {
+      vecU32_push(&params->blocks_with_len[0], &num_blocks);
+      vecByte_push(&params->block_len, &tmp_u8);
+      ++num_blocks;
+    }
+    initial_num_written = num_blocks << 4;
+    uint32_t inner_num = num;
+    tmp_u8 = 16;
+    while (inner_num > 16) {
+      vecByte_push(&params->block_len, &tmp_u8);
+      inner_num -= 16;
+    }
+    // this can be between 1 to 16.
+    if (inner_num < 16) {
+      uint32_t tmp_u32 = params->block_len.len;
+      vecU32_push(&params->blocks_with_len[inner_num], &tmp_u32);
+    }
+    tmp_u8 = inner_num;
+    vecByte_push(&params->block_len, &tmp_u8);
+  } else {
+    // 1 <= num <= 16
+    for (uint8_t required_gap = 16 - (uint8_t)num; ; --required_gap) { // 0 <= required_gap <= 15
+      // if found, use it
+      if (params->blocks_with_len[required_gap].len) {
+        uint32_t place = params->blocks_with_len[required_gap].ptr[--params->blocks_with_len[required_gap].len];
+        // use | instead of + because it cannot overflow
+        initial_num_written = (place << 4) | required_gap;
+        // repurpose this variable.
+        required_gap += num; // 1 <= required_gap <= 16
+        if (required_gap < 16) vecU32_push(&params->blocks_with_len[required_gap], &place);
+        params->block_len.ptr[place] = required_gap;
+        break;
+      }
+      // if 0, add new row.
+      if (!required_gap) {
+        initial_num_written = num_blocks << 4;
+        if (num < 16) vecU32_push(&params->blocks_with_len[num], &num_blocks);
+        uint8_t tmp_u8 = num;
+        vecByte_push(&params->block_len, &tmp_u8);
+        break;
+      }
+    }
+  }
+  uint32_t write_p = p;
+  while (true) {
+    uint32_t a = self->states[p].arc_index;
+    if (a) kwgc_states_defragger_defrag_cache_friendly(self, params, a);
+    p = self->states[p].next_index;
+    if (!p) break;
+  }
+  *dp = 0;
+  for (uint32_t ofs = 0; ofs < num; ++ofs) {
+    // prefer earlier index, so dawg part does not point to gaddag part.
+    dp = self->destination + write_p;
+    if (*dp) break;
+    *dp = initial_num_written + ofs;
+    write_p = self->states[write_p].next_index;
+  }
+  // non-legacy mode already reserves the space.
+}
+
+uint32_t *qc_ref_num_ways; // temp global, do not free().
+uint32_t *qc_ref_to_end_lens; // temp global, do not free().
+int qc_build_experimental(const void *a, const void *b) {
+  uint32_t pa = *(uint32_t *)a;
+  uint32_t pb = *(uint32_t *)b;
+  uint32_t num_ways_a = qc_ref_num_ways[pa];
+  uint32_t num_ways_b = qc_ref_num_ways[pb];
+  if (num_ways_b < num_ways_a) return -1;
+  if (num_ways_b > num_ways_a) return 1;
+  uint32_t to_end_lens_a = qc_ref_to_end_lens[pa];
+  uint32_t to_end_lens_b = qc_ref_to_end_lens[pb];
+  if (to_end_lens_b < to_end_lens_a) return -1;
+  if (to_end_lens_b > to_end_lens_a) return 1;
+  if (pa < pb) return -1;
+  if (pa > pb) return 1;
+  return 0;
+}
+
+void kwgc_states_defragger_build_experimental(KwgcStatesDefragger self[static 1], uint32_t num_ways[static 1], uint32_t top_indexes[static 1]) {
+  uint32_t states_len_minus_one = self->states_len - 1;
+  uint32_t *idxs = malloc_or_die(states_len_minus_one * sizeof(uint32_t));
+  for (uint32_t p = 0; p < states_len_minus_one; ++p) idxs[p] = p + 1;
+  qc_ref_num_ways = num_ways;
+  qc_ref_to_end_lens = self->to_end_lens;
+  qsort(idxs, states_len_minus_one, sizeof(uint32_t), qc_build_experimental);
+
+  KwgcStatesDefraggerExperimentalParams params = {
+      .block_len = vecByte_new(),
+      .blocks_with_len = {
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+      },
+    };
+  {
+    // num_written is either 1 or 2, both are < 16.
+    uint8_t num_written_as_byte = (uint8_t)self->num_written;
+    vecByte_push(&params.block_len, &num_written_as_byte);
+  }
+  {
+    uint32_t zero = 0;
+    vecU32_push(&params.blocks_with_len[self->num_written], &zero);
+  }
+  for (uint32_t i = 0; i < states_len_minus_one; ++i) {
+    kwgc_states_defragger_defrag_cache_friendly(self, &params, top_indexes[idxs[i]]);
+  }
+  self->num_written = ((params.block_len.len - 1) << 4) + params.block_len.ptr[params.block_len.len - 1];
+
+  for (uint32_t i = 16; i-- > 0; ) vecU32_free(&params.blocks_with_len[i]);
+  vecByte_free(&params.block_len);
+  free(idxs);
+}
+
+bool *qc_ref_used_in_dawg; // temp global, do not free().
+int qc_build_wolges(const void *a, const void *b) {
+  uint32_t pa = *(uint32_t *)a;
+  uint32_t pb = *(uint32_t *)b;
+  bool used_in_dawg_a = qc_ref_used_in_dawg[pa];
+  bool used_in_dawg_b = qc_ref_used_in_dawg[pb];
+  if (used_in_dawg_b < used_in_dawg_a) return -1;
+  if (used_in_dawg_b > used_in_dawg_a) return 1;
+  uint32_t num_ways_a = qc_ref_num_ways[pa];
+  uint32_t num_ways_b = qc_ref_num_ways[pb];
+  if (num_ways_b < num_ways_a) return -1;
+  if (num_ways_b > num_ways_a) return 1;
+  uint32_t to_end_lens_a = qc_ref_to_end_lens[pa];
+  uint32_t to_end_lens_b = qc_ref_to_end_lens[pb];
+  if (to_end_lens_b < to_end_lens_a) return -1;
+  if (to_end_lens_b > to_end_lens_a) return 1;
+  if (pa < pb) return -1;
+  if (pa > pb) return 1;
+  return 0;
+}
+
+void kwgc_states_defragger_build_wolges(KwgcStatesDefragger self[static 1], uint32_t num_ways[static 1], bool is_gaddag, uint32_t dawg_start_state) {
+  uint32_t states_len_minus_one = self->states_len - 1;
+  uint32_t *idxs = malloc_or_die(states_len_minus_one * sizeof(uint32_t));
+  for (uint32_t p = 0; p < states_len_minus_one; ++p) idxs[p] = p + 1;
+  qc_ref_num_ways = num_ways;
+  qc_ref_to_end_lens = self->to_end_lens;
+  if (is_gaddag) {
+    // Check which nodes are used in dawg.
+    bool *used_in_dawg = malloc_or_die(self->states_len * sizeof(bool));
+    used_in_dawg[0] = false;
+    uint32_t p = 1;
+    for (; p <= dawg_start_state; ++p) used_in_dawg[p] = true;
+    for (; p < self->states_len; ++p) used_in_dawg[p] = used_in_dawg[self->states[p].next_index];
+    qc_ref_used_in_dawg = used_in_dawg;
+    qsort(idxs, states_len_minus_one, sizeof(uint32_t), qc_build_wolges);
+    free(used_in_dawg);
+  } else {
+    // All nodes are dawg nodes.
+    qsort(idxs, states_len_minus_one, sizeof(uint32_t), qc_build_experimental);
+  }
+
+  KwgcStatesDefraggerExperimentalParams params = {
+      .block_len = vecByte_new(),
+      .blocks_with_len = {
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+        vecU32_new(), vecU32_new(), vecU32_new(), vecU32_new(),
+      },
+    };
+  {
+    // num_written is either 1 or 2, both are < 16.
+    uint8_t num_written_as_byte = (uint8_t)self->num_written;
+    vecByte_push(&params.block_len, &num_written_as_byte);
+  }
+  {
+    uint32_t zero = 0;
+    vecU32_push(&params.blocks_with_len[self->num_written], &zero);
+  }
+  for (uint32_t i = 0; i < states_len_minus_one; ++i) {
+    kwgc_states_defragger_defrag_cache_friendly(self, &params, idxs[i]);
+  }
+  self->num_written = ((params.block_len.len - 1) << 4) + params.block_len.ptr[params.block_len.len - 1];
+
+  for (uint32_t i = 16; i-- > 0; ) vecU32_free(&params.blocks_with_len[i]);
+  vecByte_free(&params.block_len);
+  free(idxs);
+}
+
 static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, bool is_end, bool accepts, uint8_t tile) {
   pout[0] = defragged_arc_index;
   pout[1] = defragged_arc_index >> 8;
@@ -453,14 +664,6 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
 
 // ret must initially be empty.
 void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout) {
-  switch (build_layout) {
-    case BuildLayout_Wolges: build_layout = BuildLayout_Legacy;
-    case BuildLayout_Legacy: break;
-    case BuildLayout_Magpie: break;
-    case BuildLayout_MagpieMerged: break;
-    case BuildLayout_Experimental:
-    default: fputs("unsupported build layout\n", stderr); abort();
-  }
   KwgcStateMaker state_maker = kwgc_state_maker_new();
   // The sink state always exists.
   vecKwgcState_push(&state_maker.states, &(KwgcState){
@@ -511,8 +714,12 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   }
   uint32_t *head_indexes = NULL;
   switch (build_layout) {
-    case BuildLayout_Magpie: break;
-    default:
+    case BuildLayout_Magpie:
+      break;
+    case BuildLayout_Legacy:
+    case BuildLayout_MagpieMerged:
+    case BuildLayout_Experimental:
+    case BuildLayout_Wolges:
       head_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
       for (uint32_t p = 0; p < state_maker.states.len; ++p) head_indexes[p] = p;
       // point to immediate prev.
@@ -533,8 +740,57 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   }
   uint32_t *destination = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
   memset(destination, 0, state_maker.states.len * sizeof(uint32_t));
+  uint32_t *num_ways = NULL;
+  switch (build_layout) {
+    case BuildLayout_Experimental:
+    case BuildLayout_Wolges:
+      num_ways = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
+      memset(num_ways, 0, state_maker.states.len * sizeof(uint32_t));
+      num_ways[dawg_start_state] = 1;
+      if (is_gaddag) num_ways[gaddag_start_state] = 1;
+      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
+        uint32_t this_num_ways = num_ways[p];
+        // saturating add using cmov.
+        uint32_t *pp_dest = num_ways + state_maker.states.ptr[p].next_index;
+        if ((*pp_dest += this_num_ways) < this_num_ways) *pp_dest = (uint32_t)~0;
+        pp_dest = num_ways + state_maker.states.ptr[p].arc_index;
+        if ((*pp_dest += this_num_ways) < this_num_ways) *pp_dest = (uint32_t)~0;
+      }
+      break;
+    case BuildLayout_Legacy:
+    case BuildLayout_Magpie:
+    case BuildLayout_MagpieMerged:
+      break;
+  }
+  uint32_t *top_indexes = NULL;
+  switch (build_layout) {
+    case BuildLayout_Experimental:
+      top_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
+      memset(top_indexes, 0, state_maker.states.len * sizeof(uint32_t));
+      for (uint32_t p = 1; p < state_maker.states.len; ++p) {
+        uint32_t *pp_dest = top_indexes + state_maker.states.ptr[p].arc_index;
+        *pp_dest = p | -!!*pp_dest;
+      }
+      // [p] = 0 (no parent), parent_index, or !0 if > 1 parents.
+      // if not unique, set [p] = p.
+      for (uint32_t p = 0; p < state_maker.states.len; ++p) {
+        uint32_t *pp_dest = top_indexes + p;
+        if (*pp_dest == 0 || *pp_dest == (uint32_t)~0) *pp_dest = p;
+      }
+      // adjust to point to prev tops's heads instead.
+      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
+        top_indexes[p] = head_indexes[top_indexes[top_indexes[p]]];
+      }
+      break;
+    case BuildLayout_Legacy:
+    case BuildLayout_Magpie:
+    case BuildLayout_MagpieMerged:
+    case BuildLayout_Wolges:
+      break;
+  }
   KwgcStatesDefragger states_defragger = {
       .states = (KwgcState *)state_maker.states.ptr,
+      .states_len = state_maker.states.len,
       .head_indexes = head_indexes,
       .to_end_lens = to_end_lens,
       .destination = destination,
@@ -555,8 +811,11 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       if (is_gaddag) kwgc_states_defragger_defrag_magpie_merged(&states_defragger, gaddag_start_state);
       break;
     case BuildLayout_Experimental:
+      kwgc_states_defragger_build_experimental(&states_defragger, num_ways, top_indexes);
+      break;
     case BuildLayout_Wolges:
-    default: fputs("unsupported build layout\n", stderr); abort();
+      kwgc_states_defragger_build_wolges(&states_defragger, num_ways, is_gaddag, dawg_start_state);
+      break;
   }
   destination[0] = 0; // useful for empty lexicon.
   if (states_defragger.num_written > 0x400000) {
@@ -569,6 +828,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
     return;
   }
   vecU32_ensure_cap_exact(ret, ret->len = states_defragger.num_written);
+  memset(ret->ptr, 0, ret->len * sizeof(uint32_t)); // initialize gaps to 0 for determinism.
   kwgc_write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
   if (is_gaddag) kwgc_write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
   for (uint32_t outer_p = 1; outer_p < state_maker.states.len; ++outer_p) {
@@ -582,6 +842,8 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       }
     }
   }
+  free(top_indexes);
+  free(num_ways);
   free(destination);
   free(to_end_lens);
   free(head_indexes);
@@ -960,8 +1222,9 @@ int main(int argc, char **argv) {
       "    generate dawg-only file\n"
       "  (english-... can also be english-magpie-... for bigger magpie-style kwg,\n"
       "    english-magpiemerged-... for magpie ordering with wolges merging,\n"
-      "    english-legacy-... for legacy (which is the default),\n"
-      "    this is applicable for kwg, kwg-anything, klv2)\n"
+      "    english-experimental-... for experimental,\n"
+      "    english-legacy-... for legacy (which is the former default),\n"
+      "    this is applicable for kwg, kwg-anything, klv/klv2)\n"
       "  english-read-kwg infile.kwg\n"
       "    read kwg on a little-endian system (dawg part only)\n"
       "  english-read-kwg-gaddag infile.kwg\n"
