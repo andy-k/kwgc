@@ -989,40 +989,30 @@ ParsedTile polish_tileset_parse(uint8_t *ptr) {
 Tile slovene_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
-  { .label = "Å", .blank_label = "å" }, // 2
-  { .label = "Ä", .blank_label = "ä" }, // 3
-  { .label = "B", .blank_label = "b" }, // 4
-  { .label = "C", .blank_label = "c" }, // 5
-  { .label = "Ç", .blank_label = "ç" }, // 6
-  { .label = "Č", .blank_label = "č" }, // 7
-  { .label = "D", .blank_label = "d" }, // 8
-  { .label = "E", .blank_label = "e" }, // 9
-  { .label = "F", .blank_label = "f" }, // 10
-  { .label = "G", .blank_label = "g" }, // 11
-  { .label = "H", .blank_label = "h" }, // 12
-  { .label = "I", .blank_label = "i" }, // 13
-  { .label = "J", .blank_label = "j" }, // 14
-  { .label = "K", .blank_label = "k" }, // 15
-  { .label = "L", .blank_label = "l" }, // 16
-  { .label = "M", .blank_label = "m" }, // 17
-  { .label = "N", .blank_label = "n" }, // 18
-  { .label = "Ñ", .blank_label = "ñ" }, // 19
-  { .label = "O", .blank_label = "o" }, // 20
-  { .label = "Ö", .blank_label = "ö" }, // 21
-  { .label = "P", .blank_label = "p" }, // 22
-  { .label = "Q", .blank_label = "q" }, // 23
-  { .label = "R", .blank_label = "r" }, // 24
-  { .label = "S", .blank_label = "s" }, // 25
-  { .label = "Š", .blank_label = "š" }, // 26
-  { .label = "T", .blank_label = "t" }, // 27
-  { .label = "U", .blank_label = "u" }, // 28
-  { .label = "Ü", .blank_label = "ü" }, // 29
-  { .label = "V", .blank_label = "v" }, // 30
-  { .label = "W", .blank_label = "w" }, // 31
-  { .label = "X", .blank_label = "x" }, // 32
-  { .label = "Y", .blank_label = "y" }, // 33
-  { .label = "Z", .blank_label = "z" }, // 34
-  { .label = "Ž", .blank_label = "ž" }, // 35
+  { .label = "B", .blank_label = "b" }, // 2
+  { .label = "C", .blank_label = "c" }, // 3
+  { .label = "Č", .blank_label = "č" }, // 4
+  { .label = "D", .blank_label = "d" }, // 5
+  { .label = "E", .blank_label = "e" }, // 6
+  { .label = "F", .blank_label = "f" }, // 7
+  { .label = "G", .blank_label = "g" }, // 8
+  { .label = "H", .blank_label = "h" }, // 9
+  { .label = "I", .blank_label = "i" }, // 10
+  { .label = "J", .blank_label = "j" }, // 11
+  { .label = "K", .blank_label = "k" }, // 12
+  { .label = "L", .blank_label = "l" }, // 13
+  { .label = "M", .blank_label = "m" }, // 14
+  { .label = "N", .blank_label = "n" }, // 15
+  { .label = "O", .blank_label = "o" }, // 16
+  { .label = "P", .blank_label = "p" }, // 17
+  { .label = "R", .blank_label = "r" }, // 18
+  { .label = "S", .blank_label = "s" }, // 19
+  { .label = "Š", .blank_label = "š" }, // 20
+  { .label = "T", .blank_label = "t" }, // 21
+  { .label = "U", .blank_label = "u" }, // 22
+  { .label = "V", .blank_label = "v" }, // 23
+  { .label = "Z", .blank_label = "z" }, // 24
+  { .label = "Ž", .blank_label = "ž" }, // 25
 };
 
 ParsedTile slovene_tileset_parse(uint8_t *ptr) {
@@ -1032,130 +1022,100 @@ ParsedTile slovene_tileset_parse(uint8_t *ptr) {
   case 0x41:
     return (ParsedTile){ .len = 1, .index = 1 }; // A
   case 0x42:
-    return (ParsedTile){ .len = 1, .index = 4 }; // B
+    return (ParsedTile){ .len = 1, .index = 2 }; // B
   case 0x43:
-    return (ParsedTile){ .len = 1, .index = 5 }; // C
+    return (ParsedTile){ .len = 1, .index = 3 }; // C
   case 0x44:
-    return (ParsedTile){ .len = 1, .index = 8 }; // D
+    return (ParsedTile){ .len = 1, .index = 5 }; // D
   case 0x45:
-    return (ParsedTile){ .len = 1, .index = 9 }; // E
+    return (ParsedTile){ .len = 1, .index = 6 }; // E
   case 0x46:
-    return (ParsedTile){ .len = 1, .index = 10 }; // F
+    return (ParsedTile){ .len = 1, .index = 7 }; // F
   case 0x47:
-    return (ParsedTile){ .len = 1, .index = 11 }; // G
+    return (ParsedTile){ .len = 1, .index = 8 }; // G
   case 0x48:
-    return (ParsedTile){ .len = 1, .index = 12 }; // H
+    return (ParsedTile){ .len = 1, .index = 9 }; // H
   case 0x49:
-    return (ParsedTile){ .len = 1, .index = 13 }; // I
+    return (ParsedTile){ .len = 1, .index = 10 }; // I
   case 0x4a:
-    return (ParsedTile){ .len = 1, .index = 14 }; // J
+    return (ParsedTile){ .len = 1, .index = 11 }; // J
   case 0x4b:
-    return (ParsedTile){ .len = 1, .index = 15 }; // K
+    return (ParsedTile){ .len = 1, .index = 12 }; // K
   case 0x4c:
-    return (ParsedTile){ .len = 1, .index = 16 }; // L
+    return (ParsedTile){ .len = 1, .index = 13 }; // L
   case 0x4d:
-    return (ParsedTile){ .len = 1, .index = 17 }; // M
+    return (ParsedTile){ .len = 1, .index = 14 }; // M
   case 0x4e:
-    return (ParsedTile){ .len = 1, .index = 18 }; // N
+    return (ParsedTile){ .len = 1, .index = 15 }; // N
   case 0x4f:
-    return (ParsedTile){ .len = 1, .index = 20 }; // O
+    return (ParsedTile){ .len = 1, .index = 16 }; // O
   case 0x50:
-    return (ParsedTile){ .len = 1, .index = 22 }; // P
-  case 0x51:
-    return (ParsedTile){ .len = 1, .index = 23 }; // Q
+    return (ParsedTile){ .len = 1, .index = 17 }; // P
   case 0x52:
-    return (ParsedTile){ .len = 1, .index = 24 }; // R
+    return (ParsedTile){ .len = 1, .index = 18 }; // R
   case 0x53:
-    return (ParsedTile){ .len = 1, .index = 25 }; // S
+    return (ParsedTile){ .len = 1, .index = 19 }; // S
   case 0x54:
-    return (ParsedTile){ .len = 1, .index = 27 }; // T
+    return (ParsedTile){ .len = 1, .index = 21 }; // T
   case 0x55:
-    return (ParsedTile){ .len = 1, .index = 28 }; // U
+    return (ParsedTile){ .len = 1, .index = 22 }; // U
   case 0x56:
-    return (ParsedTile){ .len = 1, .index = 30 }; // V
-  case 0x57:
-    return (ParsedTile){ .len = 1, .index = 31 }; // W
-  case 0x58:
-    return (ParsedTile){ .len = 1, .index = 32 }; // X
-  case 0x59:
-    return (ParsedTile){ .len = 1, .index = 33 }; // Y
+    return (ParsedTile){ .len = 1, .index = 23 }; // V
   case 0x5a:
-    return (ParsedTile){ .len = 1, .index = 34 }; // Z
+    return (ParsedTile){ .len = 1, .index = 24 }; // Z
   case 0x61:
     return (ParsedTile){ .len = 1, .index = 1 }; // a
   case 0x62:
-    return (ParsedTile){ .len = 1, .index = 4 }; // b
+    return (ParsedTile){ .len = 1, .index = 2 }; // b
   case 0x63:
-    return (ParsedTile){ .len = 1, .index = 5 }; // c
+    return (ParsedTile){ .len = 1, .index = 3 }; // c
   case 0x64:
-    return (ParsedTile){ .len = 1, .index = 8 }; // d
+    return (ParsedTile){ .len = 1, .index = 5 }; // d
   case 0x65:
-    return (ParsedTile){ .len = 1, .index = 9 }; // e
+    return (ParsedTile){ .len = 1, .index = 6 }; // e
   case 0x66:
-    return (ParsedTile){ .len = 1, .index = 10 }; // f
+    return (ParsedTile){ .len = 1, .index = 7 }; // f
   case 0x67:
-    return (ParsedTile){ .len = 1, .index = 11 }; // g
+    return (ParsedTile){ .len = 1, .index = 8 }; // g
   case 0x68:
-    return (ParsedTile){ .len = 1, .index = 12 }; // h
+    return (ParsedTile){ .len = 1, .index = 9 }; // h
   case 0x69:
-    return (ParsedTile){ .len = 1, .index = 13 }; // i
+    return (ParsedTile){ .len = 1, .index = 10 }; // i
   case 0x6a:
-    return (ParsedTile){ .len = 1, .index = 14 }; // j
+    return (ParsedTile){ .len = 1, .index = 11 }; // j
   case 0x6b:
-    return (ParsedTile){ .len = 1, .index = 15 }; // k
+    return (ParsedTile){ .len = 1, .index = 12 }; // k
   case 0x6c:
-    return (ParsedTile){ .len = 1, .index = 16 }; // l
+    return (ParsedTile){ .len = 1, .index = 13 }; // l
   case 0x6d:
-    return (ParsedTile){ .len = 1, .index = 17 }; // m
+    return (ParsedTile){ .len = 1, .index = 14 }; // m
   case 0x6e:
-    return (ParsedTile){ .len = 1, .index = 18 }; // n
+    return (ParsedTile){ .len = 1, .index = 15 }; // n
   case 0x6f:
-    return (ParsedTile){ .len = 1, .index = 20 }; // o
+    return (ParsedTile){ .len = 1, .index = 16 }; // o
   case 0x70:
-    return (ParsedTile){ .len = 1, .index = 22 }; // p
-  case 0x71:
-    return (ParsedTile){ .len = 1, .index = 23 }; // q
+    return (ParsedTile){ .len = 1, .index = 17 }; // p
   case 0x72:
-    return (ParsedTile){ .len = 1, .index = 24 }; // r
+    return (ParsedTile){ .len = 1, .index = 18 }; // r
   case 0x73:
-    return (ParsedTile){ .len = 1, .index = 25 }; // s
+    return (ParsedTile){ .len = 1, .index = 19 }; // s
   case 0x74:
-    return (ParsedTile){ .len = 1, .index = 27 }; // t
+    return (ParsedTile){ .len = 1, .index = 21 }; // t
   case 0x75:
-    return (ParsedTile){ .len = 1, .index = 28 }; // u
+    return (ParsedTile){ .len = 1, .index = 22 }; // u
   case 0x76:
-    return (ParsedTile){ .len = 1, .index = 30 }; // v
-  case 0x77:
-    return (ParsedTile){ .len = 1, .index = 31 }; // w
-  case 0x78:
-    return (ParsedTile){ .len = 1, .index = 32 }; // x
-  case 0x79:
-    return (ParsedTile){ .len = 1, .index = 33 }; // y
+    return (ParsedTile){ .len = 1, .index = 23 }; // v
   case 0x7a:
-    return (ParsedTile){ .len = 1, .index = 34 }; // z
-  case 0xc3:
-    if (ptr[1] == 0x85) return (ParsedTile){ .len = 2, .index = 2 }; // Å
-    if (ptr[1] == 0xa5) return (ParsedTile){ .len = 2, .index = 2 }; // å
-    if (ptr[1] == 0x84) return (ParsedTile){ .len = 2, .index = 3 }; // Ä
-    if (ptr[1] == 0xa4) return (ParsedTile){ .len = 2, .index = 3 }; // ä
-    if (ptr[1] == 0x87) return (ParsedTile){ .len = 2, .index = 6 }; // Ç
-    if (ptr[1] == 0xa7) return (ParsedTile){ .len = 2, .index = 6 }; // ç
-    if (ptr[1] == 0x91) return (ParsedTile){ .len = 2, .index = 19 }; // Ñ
-    if (ptr[1] == 0xb1) return (ParsedTile){ .len = 2, .index = 19 }; // ñ
-    if (ptr[1] == 0x96) return (ParsedTile){ .len = 2, .index = 21 }; // Ö
-    if (ptr[1] == 0xb6) return (ParsedTile){ .len = 2, .index = 21 }; // ö
-    if (ptr[1] == 0x9c) return (ParsedTile){ .len = 2, .index = 29 }; // Ü
-    if (ptr[1] == 0xbc) return (ParsedTile){ .len = 2, .index = 29 }; // ü
-    break;
+    return (ParsedTile){ .len = 1, .index = 24 }; // z
   case 0xc4:
-    if (ptr[1] == 0x8c) return (ParsedTile){ .len = 2, .index = 7 }; // Č
-    if (ptr[1] == 0x8d) return (ParsedTile){ .len = 2, .index = 7 }; // č
+    if (ptr[1] == 0x8c) return (ParsedTile){ .len = 2, .index = 4 }; // Č
+    if (ptr[1] == 0x8d) return (ParsedTile){ .len = 2, .index = 4 }; // č
     break;
   case 0xc5:
-    if (ptr[1] == 0xa0) return (ParsedTile){ .len = 2, .index = 26 }; // Š
-    if (ptr[1] == 0xa1) return (ParsedTile){ .len = 2, .index = 26 }; // š
-    if (ptr[1] == 0xbd) return (ParsedTile){ .len = 2, .index = 35 }; // Ž
-    if (ptr[1] == 0xbe) return (ParsedTile){ .len = 2, .index = 35 }; // ž
+    if (ptr[1] == 0xa0) return (ParsedTile){ .len = 2, .index = 20 }; // Š
+    if (ptr[1] == 0xa1) return (ParsedTile){ .len = 2, .index = 20 }; // š
+    if (ptr[1] == 0xbd) return (ParsedTile){ .len = 2, .index = 25 }; // Ž
+    if (ptr[1] == 0xbe) return (ParsedTile){ .len = 2, .index = 25 }; // ž
     break;
   }
   return (ParsedTile){ .len = 0, .index = 0 };
