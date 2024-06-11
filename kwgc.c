@@ -1,6 +1,7 @@
 // Copyright (C) 2020-2024 Andy Kurnia.
 
 #include <arpa/inet.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -50,7 +51,7 @@ int fprint_dur_us(FILE *fp, struct timeval tv_end, struct timeval tv_start) {
     dur_usec += 1000000;
     --dur_sec;
   }
-  return fprintf(fp, "%lld.%06d", dur_sec, dur_usec);
+  return fprintf(fp, "%" PRId64 ".%06d", dur_sec, dur_usec);
 }
 
 // malloc helpers
@@ -254,10 +255,17 @@ static inline uint64_t kwgc_state_hash(KwgcState self[static 1]) {
 }
 
 static inline bool kwgc_state_eql(KwgcState a[static 1], KwgcState b[static 1]) {
+#ifndef __clang__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
   return a->tile == b->tile &&
     a->accepts == b->accepts &&
     a->arc_index == b->arc_index &&
     a->next_index == b->next_index;
+#ifndef __clang__
+#pragma GCC diagnostic pop
+#endif
 }
 
 #define KHM_K_NAME KwgcState
@@ -769,7 +777,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       memset(top_indexes, 0, state_maker.states.len * sizeof(uint32_t));
       for (uint32_t p = 1; p < state_maker.states.len; ++p) {
         uint32_t *pp_dest = top_indexes + state_maker.states.ptr[p].arc_index;
-        *pp_dest = p | -!!*pp_dest;
+        *pp_dest = p | (uint32_t)-!!*pp_dest;
       }
       // [p] = 0 (no parent), parent_index, or !0 if > 1 parents.
       // if not unique, set [p] = p.

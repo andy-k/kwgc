@@ -90,7 +90,14 @@ static inline size_t KHM_F(locate)(KHM_T self[static 1], KHM_K_T *pk, uint64_t h
   size_t probe = bucket;
   do {
     if (!self->occupieds.ptr[probe]) return probe;
+#ifndef __clang__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
     if (self->hashes.ptr[probe] == hsh && KHM_K_EQLFUNC(&self->keys.ptr[probe], pk)) return probe;
+#ifndef __clang__
+#pragma GCC diagnostic pop
+#endif
     probe = (probe + 1) & mask;
   } while (probe != bucket);
   return (size_t)-1;
