@@ -103,6 +103,14 @@ ParsedTile catalan_tileset_parse(uint8_t *ptr) {
     return (ParsedTile){ .len = 1, .index = 16 }; // Y
   case 0x5a:
     return (ParsedTile){ .len = 1, .index = 26 }; // Z
+  case 0x5b:
+    if (ptr[1] == 0x4c && ptr[2] == 0xc2 && ptr[3] == 0xb7 && ptr[4] == 0x4c && ptr[5] == 0x5d) return (ParsedTile){ .len = 6, .index = 13 }; // [L·L]
+    if (ptr[1] == 0x6c && ptr[2] == 0xc2 && ptr[3] == 0xb7 && ptr[4] == 0x6c && ptr[5] == 0x5d) return (ParsedTile){ .len = 6, .index = 13 }; // [l·l]
+    if (ptr[1] == 0x4e && ptr[2] == 0x59 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 16 }; // [NY]
+    if (ptr[1] == 0x6e && ptr[2] == 0x79 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 16 }; // [ny]
+    if (ptr[1] == 0x51 && ptr[2] == 0x55 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 19 }; // [QU]
+    if (ptr[1] == 0x71 && ptr[2] == 0x75 && ptr[3] == 0x5d) return (ParsedTile){ .len = 4, .index = 19 }; // [qu]
+    break;
   case 0x61:
     return (ParsedTile){ .len = 1, .index = 1 }; // a
   case 0x62:
