@@ -519,6 +519,223 @@ ParsedTile english_tileset_parse(uint8_t *ptr) {
   return (ParsedTile){ .len = 0, .index = 0 };
 }
 
+Tile hex_tileset[] = {
+  { .label = "00", .blank_label = "80" }, // 0
+  { .label = "01", .blank_label = "81" }, // 1
+  { .label = "02", .blank_label = "82" }, // 2
+  { .label = "03", .blank_label = "83" }, // 3
+  { .label = "04", .blank_label = "84" }, // 4
+  { .label = "05", .blank_label = "85" }, // 5
+  { .label = "06", .blank_label = "86" }, // 6
+  { .label = "07", .blank_label = "87" }, // 7
+  { .label = "08", .blank_label = "88" }, // 8
+  { .label = "09", .blank_label = "89" }, // 9
+  { .label = "0a", .blank_label = "8a" }, // 10
+  { .label = "0b", .blank_label = "8b" }, // 11
+  { .label = "0c", .blank_label = "8c" }, // 12
+  { .label = "0d", .blank_label = "8d" }, // 13
+  { .label = "0e", .blank_label = "8e" }, // 14
+  { .label = "0f", .blank_label = "8f" }, // 15
+  { .label = "10", .blank_label = "90" }, // 16
+  { .label = "11", .blank_label = "91" }, // 17
+  { .label = "12", .blank_label = "92" }, // 18
+  { .label = "13", .blank_label = "93" }, // 19
+  { .label = "14", .blank_label = "94" }, // 20
+  { .label = "15", .blank_label = "95" }, // 21
+  { .label = "16", .blank_label = "96" }, // 22
+  { .label = "17", .blank_label = "97" }, // 23
+  { .label = "18", .blank_label = "98" }, // 24
+  { .label = "19", .blank_label = "99" }, // 25
+  { .label = "1a", .blank_label = "9a" }, // 26
+  { .label = "1b", .blank_label = "9b" }, // 27
+  { .label = "1c", .blank_label = "9c" }, // 28
+  { .label = "1d", .blank_label = "9d" }, // 29
+  { .label = "1e", .blank_label = "9e" }, // 30
+  { .label = "1f", .blank_label = "9f" }, // 31
+  { .label = "20", .blank_label = "a0" }, // 32
+  { .label = "21", .blank_label = "a1" }, // 33
+  { .label = "22", .blank_label = "a2" }, // 34
+  { .label = "23", .blank_label = "a3" }, // 35
+  { .label = "24", .blank_label = "a4" }, // 36
+  { .label = "25", .blank_label = "a5" }, // 37
+  { .label = "26", .blank_label = "a6" }, // 38
+  { .label = "27", .blank_label = "a7" }, // 39
+  { .label = "28", .blank_label = "a8" }, // 40
+  { .label = "29", .blank_label = "a9" }, // 41
+  { .label = "2a", .blank_label = "aa" }, // 42
+  { .label = "2b", .blank_label = "ab" }, // 43
+  { .label = "2c", .blank_label = "ac" }, // 44
+  { .label = "2d", .blank_label = "ad" }, // 45
+  { .label = "2e", .blank_label = "ae" }, // 46
+  { .label = "2f", .blank_label = "af" }, // 47
+  { .label = "30", .blank_label = "b0" }, // 48
+  { .label = "31", .blank_label = "b1" }, // 49
+  { .label = "32", .blank_label = "b2" }, // 50
+  { .label = "33", .blank_label = "b3" }, // 51
+  { .label = "34", .blank_label = "b4" }, // 52
+  { .label = "35", .blank_label = "b5" }, // 53
+  { .label = "36", .blank_label = "b6" }, // 54
+  { .label = "37", .blank_label = "b7" }, // 55
+  { .label = "38", .blank_label = "b8" }, // 56
+  { .label = "39", .blank_label = "b9" }, // 57
+  { .label = "3a", .blank_label = "ba" }, // 58
+  { .label = "3b", .blank_label = "bb" }, // 59
+  { .label = "3c", .blank_label = "bc" }, // 60
+  { .label = "3d", .blank_label = "bd" }, // 61
+  { .label = "3e", .blank_label = "be" }, // 62
+  { .label = "3f", .blank_label = "bf" }, // 63
+};
+
+ParsedTile hex_tileset_parse(uint8_t *ptr) {
+  switch (*ptr) {
+  case 0x30:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 0 }; // 00
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 1 }; // 01
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 2 }; // 02
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 3 }; // 03
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 4 }; // 04
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 5 }; // 05
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 6 }; // 06
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 7 }; // 07
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 8 }; // 08
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 9 }; // 09
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 10 }; // 0a
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 11 }; // 0b
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 12 }; // 0c
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 13 }; // 0d
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 14 }; // 0e
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 15 }; // 0f
+    break;
+  case 0x31:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 16 }; // 10
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 17 }; // 11
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 18 }; // 12
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 19 }; // 13
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 20 }; // 14
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 21 }; // 15
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 22 }; // 16
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 23 }; // 17
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 24 }; // 18
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 25 }; // 19
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 26 }; // 1a
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 27 }; // 1b
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 28 }; // 1c
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 29 }; // 1d
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 30 }; // 1e
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 31 }; // 1f
+    break;
+  case 0x32:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 32 }; // 20
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 33 }; // 21
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 34 }; // 22
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 35 }; // 23
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 36 }; // 24
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 37 }; // 25
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 38 }; // 26
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 39 }; // 27
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 40 }; // 28
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 41 }; // 29
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 42 }; // 2a
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 43 }; // 2b
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 44 }; // 2c
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 45 }; // 2d
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 46 }; // 2e
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 47 }; // 2f
+    break;
+  case 0x33:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 48 }; // 30
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 49 }; // 31
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 50 }; // 32
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 51 }; // 33
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 52 }; // 34
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 53 }; // 35
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 54 }; // 36
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 55 }; // 37
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 56 }; // 38
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 57 }; // 39
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 58 }; // 3a
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 59 }; // 3b
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 60 }; // 3c
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 61 }; // 3d
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 62 }; // 3e
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 63 }; // 3f
+    break;
+  case 0x38:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 0 }; // 80
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 1 }; // 81
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 2 }; // 82
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 3 }; // 83
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 4 }; // 84
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 5 }; // 85
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 6 }; // 86
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 7 }; // 87
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 8 }; // 88
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 9 }; // 89
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 10 }; // 8a
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 11 }; // 8b
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 12 }; // 8c
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 13 }; // 8d
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 14 }; // 8e
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 15 }; // 8f
+    break;
+  case 0x39:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 16 }; // 90
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 17 }; // 91
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 18 }; // 92
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 19 }; // 93
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 20 }; // 94
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 21 }; // 95
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 22 }; // 96
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 23 }; // 97
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 24 }; // 98
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 25 }; // 99
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 26 }; // 9a
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 27 }; // 9b
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 28 }; // 9c
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 29 }; // 9d
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 30 }; // 9e
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 31 }; // 9f
+    break;
+  case 0x61:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 32 }; // a0
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 33 }; // a1
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 34 }; // a2
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 35 }; // a3
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 36 }; // a4
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 37 }; // a5
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 38 }; // a6
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 39 }; // a7
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 40 }; // a8
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 41 }; // a9
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 42 }; // aa
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 43 }; // ab
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 44 }; // ac
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 45 }; // ad
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 46 }; // ae
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 47 }; // af
+    break;
+  case 0x62:
+    if (ptr[1] == 0x30) return (ParsedTile){ .len = 2, .index = 48 }; // b0
+    if (ptr[1] == 0x31) return (ParsedTile){ .len = 2, .index = 49 }; // b1
+    if (ptr[1] == 0x32) return (ParsedTile){ .len = 2, .index = 50 }; // b2
+    if (ptr[1] == 0x33) return (ParsedTile){ .len = 2, .index = 51 }; // b3
+    if (ptr[1] == 0x34) return (ParsedTile){ .len = 2, .index = 52 }; // b4
+    if (ptr[1] == 0x35) return (ParsedTile){ .len = 2, .index = 53 }; // b5
+    if (ptr[1] == 0x36) return (ParsedTile){ .len = 2, .index = 54 }; // b6
+    if (ptr[1] == 0x37) return (ParsedTile){ .len = 2, .index = 55 }; // b7
+    if (ptr[1] == 0x38) return (ParsedTile){ .len = 2, .index = 56 }; // b8
+    if (ptr[1] == 0x39) return (ParsedTile){ .len = 2, .index = 57 }; // b9
+    if (ptr[1] == 0x61) return (ParsedTile){ .len = 2, .index = 58 }; // ba
+    if (ptr[1] == 0x62) return (ParsedTile){ .len = 2, .index = 59 }; // bb
+    if (ptr[1] == 0x63) return (ParsedTile){ .len = 2, .index = 60 }; // bc
+    if (ptr[1] == 0x64) return (ParsedTile){ .len = 2, .index = 61 }; // bd
+    if (ptr[1] == 0x65) return (ParsedTile){ .len = 2, .index = 62 }; // be
+    if (ptr[1] == 0x66) return (ParsedTile){ .len = 2, .index = 63 }; // bf
+    break;
+  }
+  return (ParsedTile){ .len = 0, .index = 0 };
+}
+
 Tile german_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1

@@ -1209,6 +1209,7 @@ int main(int argc, char **argv) {
     do_lang(argc, argv, "slovene", slovene_tileset_parse, slovene_tileset) ||
     do_lang(argc, argv, "spanish", spanish_tileset_parse, spanish_tileset) ||
     do_lang(argc, argv, "decimal", decimal_tileset_parse, decimal_tileset) ||
+    do_lang(argc, argv, "hex", hex_tileset_parse, hex_tileset) ||
     false // so newer tilesets can be added without git diff
   ) {
     struct timeval tv_end = now();
@@ -1239,6 +1240,6 @@ int main(int argc, char **argv) {
       "  english-read-klv2 infile.klv2\n"
       "    read klv2 on a little-endian system\n"
       "  (english can also be catalan, french, german, norwegian, polish, slovene,\n"
-      "    spanish, decimal)");
+      "    spanish, decimal, hex)");
   }
 }
