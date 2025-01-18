@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Copyright (C) 2020-2024 Andy Kurnia.
+# Copyright (C) 2020-2025 Andy Kurnia.
 # throwaway script
 
 main_fn = "../wolges/src/alphabet.rs"
