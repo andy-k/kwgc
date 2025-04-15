@@ -1023,9 +1023,10 @@ typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; /
 void dump_kwg(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
-    size_t len = orig_len + strlen(tileset[kwg[p].c].label);
+    size_t label_len = strlen(tileset[kwg[p].c].label);
+    size_t len = orig_len + label_len;
     vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[kwg[p].c].label, len);
+    memcpy(word->ptr + orig_len, tileset[kwg[p].c].label, label_len);
     word->len = len;
     if (kwg[p].d) printf("%.*s\n", (int)len, word->ptr);
     if (kwg[p].p) dump_kwg(kwg, word, kwg[p].p, tileset);
@@ -1089,9 +1090,10 @@ cleanup:
 void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], float **klv_ptr) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
-    size_t len = orig_len + strlen(tileset[kwg[p].c].label);
+    size_t label_len = strlen(tileset[kwg[p].c].label);
+    size_t len = orig_len + label_len;
     vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[kwg[p].c].label, len);
+    memcpy(word->ptr + orig_len, tileset[kwg[p].c].label, label_len);
     word->len = len;
     if (kwg[p].d) {
       // find the required precision between 1 and 16.
