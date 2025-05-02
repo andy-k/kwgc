@@ -1087,6 +1087,77 @@ cleanup:
   return !errored;
 }
 
+typedef struct { uint8_t c : 6; bool e : 1, d : 1; uint32_t p : 24; } KbwgNode; // compiler-specific UB.
+
+// same code, just changed kwg to kbwg.
+
+void dump_kbwg(KbwgNode *kbwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
+  size_t orig_len = word->len;
+  for (; p > 0; ++p) {
+    size_t label_len = strlen(tileset[kbwg[p].c].label);
+    size_t len = orig_len + label_len;
+    vecChar_ensure_cap(word, len);
+    memcpy(word->ptr + orig_len, tileset[kbwg[p].c].label, label_len);
+    word->len = len;
+    if (kbwg[p].d) printf("%.*s\n", (int)len, word->ptr);
+    if (kbwg[p].p) dump_kbwg(kbwg, word, kbwg[p].p, tileset);
+    if (kbwg[p].e) break;
+  }
+  word->len = orig_len;
+}
+
+bool do_lang_rkbwg(char **argv, Tile tileset[static 1]) {
+  // assume argc >= 3.
+  bool errored = false;
+  bool defer_fclose = false;
+  bool defer_free_file_content = false;
+  bool defer_free_word = false;
+  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
+  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
+  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
+  size_t file_size = (size_t)file_size_signed;
+  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
+  rewind(f);
+  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
+  if (is_big_endian()) swap_bytes_32(file_content, file_size);
+  KbwgNode *kbwg = (KbwgNode *)file_content;
+  VecChar word = vecChar_new(); defer_free_word = true;
+  dump_kbwg(kbwg, &word, kbwg[0].p, tileset);
+  goto cleanup;
+errored: errored = true;
+cleanup:
+  if (defer_free_word) vecChar_free(&word);
+  if (defer_free_file_content) free(file_content);
+  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
+  return !errored;
+}
+
+bool do_lang_rkbwg_gaddag(char **argv, Tile tileset[static 1]) {
+  // assume argc >= 3.
+  bool errored = false;
+  bool defer_fclose = false;
+  bool defer_free_file_content = false;
+  bool defer_free_word = false;
+  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
+  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
+  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
+  size_t file_size = (size_t)file_size_signed;
+  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
+  rewind(f);
+  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
+  if (is_big_endian()) swap_bytes_32(file_content, file_size);
+  KbwgNode *kbwg = (KbwgNode *)file_content;
+  VecChar word = vecChar_new(); defer_free_word = true;
+  dump_kbwg(kbwg, &word, kbwg[1].p, tileset);
+  goto cleanup;
+errored: errored = true;
+cleanup:
+  if (defer_free_word) vecChar_free(&word);
+  if (defer_free_file_content) free(file_content);
+  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
+  return !errored;
+}
+
 void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], float **klv_ptr) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
@@ -1186,6 +1257,14 @@ bool do_lang(int argc, char **argv, const char lang_name[static 1], ParsedTile t
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
     return do_lang_rkwg_gaddag(argv, tileset);
+  } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg")) {
+    if (argc < 3) goto needs_more_args;
+    time_goes_to_stderr = true;
+    return do_lang_rkbwg(argv, tileset);
+  } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg-gaddag")) {
+    if (argc < 3) goto needs_more_args;
+    time_goes_to_stderr = true;
+    return do_lang_rkbwg_gaddag(argv, tileset);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-klv2")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
@@ -1238,8 +1317,12 @@ int main(int argc, char **argv) {
       "    this is applicable for kwg, kwg-anything, klv/klv2)\n"
       "  english-read-kwg infile.kwg\n"
       "    read kwg on a little-endian system (dawg part only)\n"
+      "  english-read-kbwg infile.kbwg\n"
+      "    read kbwg on a little-endian system (dawg part only)\n"
       "  english-read-kwg-gaddag infile.kwg\n"
       "    read gaddag part of kwg on a little-endian system\n"
+      "  english-read-kbwg-gaddag infile.kbwg\n"
+      "    read gaddag part of kbwg on a little-endian system\n"
       "  english-read-klv2 infile.klv2\n"
       "    read klv2 on a little-endian system\n"
       "  (english can also be catalan, dutch, french, german, norwegian, polish,\n"
