@@ -377,7 +377,7 @@ ParsedTile decimal_tileset_parse(uint8_t *ptr) {
   return (ParsedTile){ .len = 0, .index = 0 };
 }
 
-Tile english_tileset[] = {
+Tile dutch_tileset[] = {
   { .label = "?", .blank_label = "?" }, // 0
   { .label = "A", .blank_label = "a" }, // 1
   { .label = "B", .blank_label = "b" }, // 2
@@ -407,7 +407,7 @@ Tile english_tileset[] = {
   { .label = "Z", .blank_label = "z" }, // 26
 };
 
-ParsedTile english_tileset_parse(uint8_t *ptr) {
+ParsedTile dutch_tileset_parse(uint8_t *ptr) {
   switch (*ptr) {
   case 0x3f:
     return (ParsedTile){ .len = 1, .index = 0 }; // ?
@@ -1503,11 +1503,14 @@ ParsedTile spanish_tileset_parse(uint8_t *ptr) {
 Tile *super_catalan_tileset = catalan_tileset;
 ParsedTile (*super_catalan_tileset_parse)(uint8_t *ptr) = catalan_tileset_parse;
 
-Tile *french_tileset = english_tileset;
-ParsedTile (*french_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
+Tile *english_tileset = dutch_tileset;
+ParsedTile (*english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
-Tile *hong_kong_english_tileset = english_tileset;
-ParsedTile (*hong_kong_english_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
+Tile *french_tileset = dutch_tileset;
+ParsedTile (*french_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
-Tile *super_english_tileset = english_tileset;
-ParsedTile (*super_english_tileset_parse)(uint8_t *ptr) = english_tileset_parse;
+Tile *hong_kong_english_tileset = dutch_tileset;
+ParsedTile (*hong_kong_english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
+
+Tile *super_english_tileset = dutch_tileset;
+ParsedTile (*super_english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;

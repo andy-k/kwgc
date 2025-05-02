@@ -1204,6 +1204,7 @@ int main(int argc, char **argv) {
   if (
     do_lang(argc, argv, "english", english_tileset_parse, english_tileset) ||
     do_lang(argc, argv, "catalan", catalan_tileset_parse, catalan_tileset) ||
+    do_lang(argc, argv, "dutch", dutch_tileset_parse, dutch_tileset) ||
     do_lang(argc, argv, "french", french_tileset_parse, french_tileset) ||
     do_lang(argc, argv, "german", german_tileset_parse, german_tileset) ||
     do_lang(argc, argv, "norwegian", norwegian_tileset_parse, norwegian_tileset) ||
@@ -1241,7 +1242,7 @@ int main(int argc, char **argv) {
       "    read gaddag part of kwg on a little-endian system\n"
       "  english-read-klv2 infile.klv2\n"
       "    read klv2 on a little-endian system\n"
-      "  (english can also be catalan, french, german, norwegian, polish, slovene,\n"
-      "    spanish, decimal, hex)");
+      "  (english can also be catalan, dutch, french, german, norwegian, polish,\n"
+      "    slovene, spanish, decimal, hex)");
   }
 }
