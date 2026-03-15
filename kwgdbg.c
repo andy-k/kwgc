@@ -10,14 +10,7 @@
 
 typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; // compiler-specific UB.
 
-static inline void *not_null_or_die(void *ptr) {
-  if (!ptr) { perror("not_null_or_die"); abort(); }
-  return ptr;
-}
-
-static inline void *realloc_or_die(void *ptr, size_t size) {
-  return not_null_or_die(realloc(ptr, size));
-}
+#include "alloc.c"
 
 #define VEC_ELT_NAME Byte
 #define VEC_ELT_T uint8_t
