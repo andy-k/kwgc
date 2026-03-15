@@ -3,16 +3,34 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/mman.h>
 
 typedef struct { uint8_t c : 6; bool e : 1, d : 1; uint32_t p : 24; } KbwgNode; // compiler-specific UB.
 
-void dump_kbwg(KbwgNode *kbwg, char s[static 1], size_t l, uint32_t p) {
+static inline void *not_null_or_die(void *ptr) {
+  if (!ptr) { perror("not_null_or_die"); abort(); }
+  return ptr;
+}
+
+static inline void *realloc_or_die(void *ptr, size_t size) {
+  return not_null_or_die(realloc(ptr, size));
+}
+
+#define VEC_ELT_NAME Byte
+#define VEC_ELT_T uint8_t
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
+
+void dump_kbwg(KbwgNode *kbwg, VecByte *buf, size_t l, uint32_t p) {
   for (; p > 0; ++p) {
-    s[l] = (char)(kbwg[p].c | 0x40); // english only.
-    if (kbwg[p].d) printf("%.*s\n", (int)(l + 1), s);
-    if (kbwg[p].p) dump_kbwg(kbwg, s, l + 1, kbwg[p].p);
+    vecByte_ensure_cap(buf, l + 1);
+    buf->ptr[l] = kbwg[p].c | 0x40; // english only.
+    if (kbwg[p].d) printf("%.*s\n", (int)(l + 1), (char *)buf->ptr);
+    if (kbwg[p].p) dump_kbwg(kbwg, buf, l + 1, kbwg[p].p);
     if (kbwg[p].e) break;
   }
 }
@@ -32,8 +50,9 @@ int main(int argc, char **argv) {
   if ((kbwg_size & 3) != 0 || !((size_t)dawgroot < (kbwg_size >> 2))) { fputs("unexpected file size\n", stderr); goto errored; }
   KbwgNode *kbwg = mmap(NULL, kbwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (!kbwg) { perror("mmap"); goto errored; } defer_munmap = true;
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
-  char buf[64]; // risky!
-  dump_kbwg(kbwg, buf, 0, kbwg[dawgroot].p);
+  VecByte buf = vecByte_new();
+  dump_kbwg(kbwg, &buf, 0, kbwg[dawgroot].p);
+  vecByte_free(&buf);
   goto cleanup;
 errored: errored = true;
 cleanup:
