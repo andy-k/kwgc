@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
   off_t kbwg_size_signed = ftello(f); if (kbwg_size_signed < 0) { perror("ftello"); goto errored; }
   size_t kbwg_size = (size_t)kbwg_size_signed;
   if ((kbwg_size & 3) != 0 || !((size_t)dawgroot < (kbwg_size >> 2))) { fputs("unexpected file size\n", stderr); goto errored; }
-  KbwgNode *kbwg = mmap(NULL, kbwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (!kbwg) { perror("mmap"); goto errored; } defer_munmap = true;
+  KbwgNode *kbwg = mmap(NULL, kbwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (kbwg == MAP_FAILED) { perror("mmap"); goto errored; } defer_munmap = true;
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
   VecByte buf = vecByte_new();
   dump_kbwg(kbwg, &buf, 0, kbwg[dawgroot].p);
