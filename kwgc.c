@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1017,143 +1018,19 @@ cleanup:
 
 typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; // compiler-specific UB.
 
-void dump_kwg(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
-  size_t orig_len = word->len;
-  for (; p > 0; ++p) {
-    size_t label_len = strlen(tileset[kwg[p].c].label);
-    size_t len = orig_len + label_len;
-    vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[kwg[p].c].label, label_len);
-    word->len = len;
-    if (kwg[p].d) printf("%.*s\n", (int)len, word->ptr);
-    if (kwg[p].p) dump_kwg(kwg, word, kwg[p].p, tileset);
-    if (kwg[p].e) break;
-  }
-  word->len = orig_len;
-}
-
-bool do_lang_rkwg(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KwgNode *kwg = (KwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kwg(kwg, &word, kwg[0].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
-
-bool do_lang_rkwg_gaddag(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KwgNode *kwg = (KwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kwg(kwg, &word, kwg[1].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
+#define XWG_NODE_T KwgNode
+#define XWG_NAME kwg
+#include "generic_xwg_read.c"
+#undef XWG_NAME
+#undef XWG_NODE_T
 
 typedef struct { uint8_t c : 6; bool e : 1, d : 1; uint32_t p : 24; } KbwgNode; // compiler-specific UB.
 
-// same code, just changed kwg to kbwg.
-
-void dump_kbwg(KbwgNode *kbwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
-  size_t orig_len = word->len;
-  for (; p > 0; ++p) {
-    size_t label_len = strlen(tileset[kbwg[p].c].label);
-    size_t len = orig_len + label_len;
-    vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[kbwg[p].c].label, label_len);
-    word->len = len;
-    if (kbwg[p].d) printf("%.*s\n", (int)len, word->ptr);
-    if (kbwg[p].p) dump_kbwg(kbwg, word, kbwg[p].p, tileset);
-    if (kbwg[p].e) break;
-  }
-  word->len = orig_len;
-}
-
-bool do_lang_rkbwg(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KbwgNode *kbwg = (KbwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kbwg(kbwg, &word, kbwg[0].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
-
-bool do_lang_rkbwg_gaddag(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KbwgNode *kbwg = (KbwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kbwg(kbwg, &word, kbwg[1].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
+#define XWG_NODE_T KbwgNode
+#define XWG_NAME kbwg
+#include "generic_xwg_read.c"
+#undef XWG_NAME
+#undef XWG_NODE_T
 
 void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], float **klv_ptr) {
   size_t orig_len = word->len;
@@ -1252,19 +1129,19 @@ bool do_lang(int argc, char **argv, const char lang_name[static 1], ParsedTile t
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkwg(argv, tileset);
+    return do_lang_rkwg(argv, tileset, 0);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg-gaddag")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkwg_gaddag(argv, tileset);
+    return do_lang_rkwg(argv, tileset, 1);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkbwg(argv, tileset);
+    return do_lang_rkbwg(argv, tileset, 0);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg-gaddag")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkbwg_gaddag(argv, tileset);
+    return do_lang_rkbwg(argv, tileset, 1);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-klv2")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
