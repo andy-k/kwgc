@@ -3,16 +3,27 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/mman.h>
 
 typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; // compiler-specific UB.
 
-void dump_kwg(KwgNode *kwg, char s[static 1], size_t l, uint32_t p) {
+#include "alloc.c"
+
+#define VEC_ELT_NAME Byte
+#define VEC_ELT_T uint8_t
+#include "generic_vec.c"
+#undef VEC_ELT_T
+#undef VEC_ELT_NAME
+
+void dump_kwg(KwgNode *kwg, VecByte *buf, size_t l, uint32_t p) {
   for (; p > 0; ++p) {
-    s[l] = (char)(kwg[p].c | 0x40); // english only.
-    if (kwg[p].d) printf("%.*s\n", (int)(l + 1), s);
-    if (kwg[p].p) dump_kwg(kwg, s, l + 1, kwg[p].p);
+    vecByte_ensure_cap(buf, l + 1);
+    buf->ptr[l] = kwg[p].c | 0x40; // english only.
+    if (kwg[p].d) printf("%.*s\n", (int)(l + 1), (char *)buf->ptr);
+    if (kwg[p].p) dump_kwg(kwg, buf, l + 1, kwg[p].p);
     if (kwg[p].e) break;
   }
 }
@@ -30,10 +41,11 @@ int main(int argc, char **argv) {
   off_t kwg_size_signed = ftello(f); if (kwg_size_signed < 0) { perror("ftello"); goto errored; }
   size_t kwg_size = (size_t)kwg_size_signed;
   if ((kwg_size & 3) != 0 || !((size_t)dawgroot < (kwg_size >> 2))) { fputs("unexpected file size\n", stderr); goto errored; }
-  KwgNode *kwg = mmap(NULL, kwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (!kwg) { perror("mmap"); goto errored; } defer_munmap = true;
+  KwgNode *kwg = mmap(NULL, kwg_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (kwg == MAP_FAILED) { perror("mmap"); goto errored; } defer_munmap = true;
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
-  char buf[64]; // risky!
-  dump_kwg(kwg, buf, 0, kwg[dawgroot].p);
+  VecByte buf = vecByte_new();
+  dump_kwg(kwg, &buf, 0, kwg[dawgroot].p);
+  vecByte_free(&buf);
   goto cleanup;
 errored: errored = true;
 cleanup:

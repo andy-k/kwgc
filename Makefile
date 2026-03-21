@@ -7,9 +7,9 @@ clean:
 
 CFLAGS=-std=gnu17 -O3 -Wall -Wextra -Wsign-conversion -pedantic -march=native -g
 
-kwgc: kwgc.c generic_vec.c generic_khm.c tiles.c
+kwgc: kwgc.c alloc.c generic_vec.c generic_khm.c tiles.c
 	$(CC) $(CFLAGS) -o $@ $<
-kwgdbg: kwgdbg.c
+kwgdbg: kwgdbg.c alloc.c generic_vec.c
 	$(CC) $(CFLAGS) -o $@ $<
-kbwgdbg: kbwgdbg.c
+kbwgdbg: kbwgdbg.c alloc.c generic_vec.c
 	$(CC) $(CFLAGS) -o $@ $<
