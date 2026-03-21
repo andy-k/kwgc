@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -652,6 +653,8 @@ void kwgc_states_defragger_build_wolges(KwgcStatesDefragger self[static 1], uint
   free(idxs);
 }
 
+typedef void (*WriteNodeFn)(uint8_t *, uint32_t, bool, bool, uint8_t);
+
 static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, bool is_end, bool accepts, uint8_t tile) {
   pout[0] = defragged_arc_index;
   pout[1] = defragged_arc_index >> 8;
@@ -660,7 +663,7 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
 }
 
 // ret must initially be empty.
-void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout) {
+static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout, WriteNodeFn write_node, uint32_t max_nodes) {
   KwgcStateMaker state_maker = kwgc_state_maker_new();
   // The sink state always exists.
   vecKwgcState_push(&state_maker.states, &(KwgcState){
@@ -815,8 +818,7 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
       break;
   }
   destination[0] = 0; // useful for empty lexicon.
-  if (states_defragger.num_written > 0x400000) {
-    // the format can only have 0x400000 elements, each has 4 bytes
+  if (states_defragger.num_written > max_nodes) {
     fprintf(stderr, "this format cannot have %u nodes\n", states_defragger.num_written);
     free(destination);
     free(to_end_lens);
@@ -826,14 +828,14 @@ void kwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_ga
   }
   vecU32_ensure_cap_exact(ret, ret->len = states_defragger.num_written);
   memset(ret->ptr, 0, ret->len * sizeof(uint32_t)); // initialize gaps to 0 for determinism.
-  kwgc_write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
-  if (is_gaddag) kwgc_write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
+  write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
+  if (is_gaddag) write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
   for (uint32_t outer_p = 1; outer_p < state_maker.states.len; ++outer_p) {
     uint32_t dp = destination[outer_p];
     if (dp) {
       for (uint32_t p = outer_p; ; ++dp) {
         KwgcState *state = states_defragger.states + p;
-        kwgc_write_node((uint8_t *)(ret->ptr + dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
+        write_node((uint8_t *)(ret->ptr + dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
         if (!state->next_index) break;
         p = state->next_index;
       }
@@ -854,198 +856,9 @@ static inline void kbwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index,
   pout[3] = defragged_arc_index >> 16;
 }
 
-// almost same as kwgc_build. (calls kbwgc_write_node and allows more nodes.)
-// ret must initially be empty.
-void kbwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout) {
-  KwgcStateMaker state_maker = kwgc_state_maker_new();
-  // The sink state always exists.
-  vecKwgcState_push(&state_maker.states, &(KwgcState){
-      .arc_index = 0,
-      .next_index = 0,
-      .tile = 0,
-      .accepts = false,
-    });
-  uint32_t gaddag_start_state = 0;
-  khmKwgcStateU32_set(&state_maker.states_finder, state_maker.states.ptr, &gaddag_start_state);
-  uint32_t dawg_start_state = kwgc_state_maker_make_dawg(&state_maker, sorted_machine_words, 0, false);
-  if (is_gaddag) {
-    OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
-    Wordlist gaddag_wl = wordlist_new();
-    for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
-      OfsLen *this_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index];
-      uint32_t prefix_len = 0;
-      if (machine_word_index > 0) {
-        OfsLen *prev_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index - 1];
-        uint32_t max_prefix_len = prev_word->len - 1; // - 1 because CAR -> CARE means we still need to emit RAC@.
-        if (this_word->len < max_prefix_len) max_prefix_len = this_word->len;
-        while (prefix_len < max_prefix_len &&
-            sorted_machine_words->tiles_bytes.ptr[prev_word->ofs + prefix_len] ==
-            sorted_machine_words->tiles_bytes.ptr[this_word->ofs + prefix_len])
-          ++prefix_len;
-      }
-      // CARE = ERAC, RAC@, AC@, C@
-      for (size_t i = this_word->len; i > 0; --i) {
-        vecByte_push(&gaddag_wl.tiles_bytes, &sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1]);
-      }
-      cur_ofs_len.len = this_word->len;
-      vecOfsLen_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
-      cur_ofs_len.ofs += cur_ofs_len.len;
-      uint8_t zero = 0;
-      for (size_t j = this_word->len - 1; j > prefix_len; --j) {
-        for (size_t i = j; i > 0; --i) {
-          vecByte_push(&gaddag_wl.tiles_bytes, &sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1]);
-        }
-        vecByte_push(&gaddag_wl.tiles_bytes, &zero);
-        cur_ofs_len.len = j + 1;
-        vecOfsLen_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
-        cur_ofs_len.ofs += cur_ofs_len.len;
-      }
-    }
-    wordlist_sort(&gaddag_wl);
-    gaddag_start_state = kwgc_state_maker_make_dawg(&state_maker, &gaddag_wl, dawg_start_state, true);
-    wordlist_free(&gaddag_wl);
-  }
-  uint32_t *head_indexes = NULL;
-  switch (build_layout) {
-    case BuildLayout_Magpie:
-      break;
-    case BuildLayout_Legacy:
-    case BuildLayout_MagpieMerged:
-    case BuildLayout_Experimental:
-    case BuildLayout_Wolges:
-      head_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-      for (uint32_t p = 0; p < state_maker.states.len; ++p) head_indexes[p] = p;
-      // point to immediate prev.
-      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-        head_indexes[state_maker.states.ptr[p].next_index] = p;
-      }
-      // head_indexes[0] is garbage, does not matter.
-      // adjust to point to prev heads instead.
-      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-        head_indexes[p] = head_indexes[head_indexes[p]];
-      }
-  }
-  uint32_t *to_end_lens = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-  for (uint32_t p = 0; p < state_maker.states.len; ++p) {
-    to_end_lens[p] = 1;
-    uint32_t next = state_maker.states.ptr[p].next_index;
-    if (next) to_end_lens[p] += to_end_lens[next];
-  }
-  uint32_t *destination = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-  memset(destination, 0, state_maker.states.len * sizeof(uint32_t));
-  uint32_t *num_ways = NULL;
-  switch (build_layout) {
-    case BuildLayout_Experimental:
-    case BuildLayout_Wolges:
-      num_ways = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-      memset(num_ways, 0, state_maker.states.len * sizeof(uint32_t));
-      num_ways[dawg_start_state] = 1;
-      if (is_gaddag) num_ways[gaddag_start_state] = 1;
-      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-        uint32_t this_num_ways = num_ways[p];
-        // saturating add using cmov.
-        uint32_t *pp_dest = num_ways + state_maker.states.ptr[p].next_index;
-        if ((*pp_dest += this_num_ways) < this_num_ways) *pp_dest = (uint32_t)~0;
-        pp_dest = num_ways + state_maker.states.ptr[p].arc_index;
-        if ((*pp_dest += this_num_ways) < this_num_ways) *pp_dest = (uint32_t)~0;
-      }
-      break;
-    case BuildLayout_Legacy:
-    case BuildLayout_Magpie:
-    case BuildLayout_MagpieMerged:
-      break;
-  }
-  uint32_t *top_indexes = NULL;
-  switch (build_layout) {
-    case BuildLayout_Experimental:
-      top_indexes = malloc_or_die(state_maker.states.len * sizeof(uint32_t));
-      memset(top_indexes, 0, state_maker.states.len * sizeof(uint32_t));
-      for (uint32_t p = 1; p < state_maker.states.len; ++p) {
-        uint32_t *pp_dest = top_indexes + state_maker.states.ptr[p].arc_index;
-        *pp_dest = p | (uint32_t)-!!*pp_dest;
-      }
-      // [p] = 0 (no parent), parent_index, or !0 if > 1 parents.
-      // if not unique, set [p] = p.
-      for (uint32_t p = 0; p < state_maker.states.len; ++p) {
-        uint32_t *pp_dest = top_indexes + p;
-        if (*pp_dest == 0 || *pp_dest == (uint32_t)~0) *pp_dest = p;
-      }
-      // adjust to point to prev tops's heads instead.
-      for (uint32_t p = state_maker.states.len - 1; p > 0; --p) {
-        top_indexes[p] = head_indexes[top_indexes[top_indexes[p]]];
-      }
-      break;
-    case BuildLayout_Legacy:
-    case BuildLayout_Magpie:
-    case BuildLayout_MagpieMerged:
-    case BuildLayout_Wolges:
-      break;
-  }
-  KwgcStatesDefragger states_defragger = {
-      .states = (KwgcState *)state_maker.states.ptr,
-      .states_len = state_maker.states.len,
-      .head_indexes = head_indexes,
-      .to_end_lens = to_end_lens,
-      .destination = destination,
-      .num_written = is_gaddag ? 2 : 1,
-    };
-  destination[0] = (uint32_t)~0; // useful for empty lexicon.
-  switch (build_layout) {
-    case BuildLayout_Legacy:
-      kwgc_states_defragger_defrag_legacy(&states_defragger, dawg_start_state);
-      if (is_gaddag) kwgc_states_defragger_defrag_legacy(&states_defragger, gaddag_start_state);
-      break;
-    case BuildLayout_Magpie:
-      kwgc_states_defragger_defrag_magpie(&states_defragger, dawg_start_state);
-      if (is_gaddag) kwgc_states_defragger_defrag_magpie(&states_defragger, gaddag_start_state);
-      break;
-    case BuildLayout_MagpieMerged:
-      kwgc_states_defragger_defrag_magpie_merged(&states_defragger, dawg_start_state);
-      if (is_gaddag) kwgc_states_defragger_defrag_magpie_merged(&states_defragger, gaddag_start_state);
-      break;
-    case BuildLayout_Experimental:
-      kwgc_states_defragger_build_experimental(&states_defragger, num_ways, top_indexes);
-      break;
-    case BuildLayout_Wolges:
-      kwgc_states_defragger_build_wolges(&states_defragger, num_ways, is_gaddag, dawg_start_state);
-      break;
-  }
-  destination[0] = 0; // useful for empty lexicon.
-  if (states_defragger.num_written > 0x1000000) {
-    // the format can only have 0x1000000 elements, each has 4 bytes
-    fprintf(stderr, "this format cannot have %u nodes\n", states_defragger.num_written);
-    free(destination);
-    free(to_end_lens);
-    free(head_indexes);
-    kwgc_state_maker_free(&state_maker);
-    return;
-  }
-  vecU32_ensure_cap_exact(ret, ret->len = states_defragger.num_written);
-  memset(ret->ptr, 0, ret->len * sizeof(uint32_t)); // initialize gaps to 0 for determinism.
-  kbwgc_write_node((uint8_t *)ret->ptr, destination[dawg_start_state], true, false, 0);
-  if (is_gaddag) kbwgc_write_node((uint8_t *)(ret->ptr + 1), destination[gaddag_start_state], true, false, 0);
-  for (uint32_t outer_p = 1; outer_p < state_maker.states.len; ++outer_p) {
-    uint32_t dp = destination[outer_p];
-    if (dp) {
-      for (uint32_t p = outer_p; ; ++dp) {
-        KwgcState *state = states_defragger.states + p;
-        kbwgc_write_node((uint8_t *)(ret->ptr + dp), destination[state->arc_index], !state->next_index, state->accepts, state->tile);
-        if (!state->next_index) break;
-        p = state->next_index;
-      }
-    }
-  }
-  free(top_indexes);
-  free(num_ways);
-  free(destination);
-  free(to_end_lens);
-  free(head_indexes);
-  kwgc_state_maker_free(&state_maker);
-}
-
 // commands
 
-bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, int mode) {
+bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, int mode, bool is_kbwg) {
   // assume argc >= 4. mode in [0 (dawgonly), 1 (gaddawg), 2 (alpha)].
   bool errored = false;
   bool defer_fclose = false;
@@ -1087,64 +900,7 @@ bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout b
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  kwgc_build(&ret, &wl, mode == 1, build_layout);
-  if (!ret.len) goto errored;
-  f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fwrite(ret.ptr, sizeof(uint32_t), ret.len, f) != ret.len) { perror("fwrite"); goto errored; }
-  defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_ret) vecU32_free(&ret);
-  if (defer_free_wl) wordlist_free(&wl);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
-
-bool do_lang_kbwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, int mode) {
-  // assume argc >= 4. mode in [0 (dawgonly), 1 (gaddawg), 2 (alpha)].
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_wl = false;
-  bool defer_free_ret = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size + 1); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
-  file_content[file_size++] = '\n'; // sentinel
-  OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
-  Wordlist wl = wordlist_new(); defer_free_wl = true;
-  for (size_t i = 0; i < file_size; ) {
-    ParsedTile parsed_tile = tileset_parse(file_content + i);
-    if (parsed_tile.len && parsed_tile.index > 0) { // ignore blank
-      vecByte_push(&wl.tiles_bytes, &parsed_tile.index);
-      i += parsed_tile.len;
-      ++cur_ofs_len.len;
-    } else if (file_content[i] <= ' ') {
-      while (file_content[i] != '\n') ++i;
-      ++i; // skip the newline
-      if (cur_ofs_len.len > 0) {
-        if (mode == 2) qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
-        vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
-        cur_ofs_len.ofs += cur_ofs_len.len;
-        cur_ofs_len.len = 0;
-      }
-    } else {
-      fprintf(stderr, "bad tile at offset %zu\n", i);
-      goto errored;
-    }
-  }
-  defer_free_file_content = false; free(file_content);
-  wordlist_sort(&wl);
-  wordlist_dedup(&wl);
-  VecU32 ret = vecU32_new(); defer_free_ret = true;
-  kbwgc_build(&ret, &wl, mode == 1, build_layout);
+  xwgc_build(&ret, &wl, mode == 1, build_layout, is_kbwg ? kbwgc_write_node : kwgc_write_node, is_kbwg ? 0x1000000 : 0x400000);
   if (!ret.len) goto errored;
   f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
   if (fwrite(ret.ptr, sizeof(uint32_t), ret.len, f) != ret.len) { perror("fwrite"); goto errored; }
@@ -1223,7 +979,7 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout 
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  kwgc_build(&ret, &wl, false, build_layout);
+  xwgc_build(&ret, &wl, false, build_layout, kwgc_write_node, 0x400000);
   if (!ret.len) goto errored;
   size_t out_len = ret.len + wl.tiles_slices.len + 2;
   uint8_t *out = malloc_or_die(out_len * sizeof(uint32_t)); defer_free_out = true;
@@ -1262,143 +1018,19 @@ cleanup:
 
 typedef struct { uint32_t p : 22; bool e : 1, d : 1; uint8_t c : 8; } KwgNode; // compiler-specific UB.
 
-void dump_kwg(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
-  size_t orig_len = word->len;
-  for (; p > 0; ++p) {
-    size_t label_len = strlen(tileset[kwg[p].c].label);
-    size_t len = orig_len + label_len;
-    vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[kwg[p].c].label, label_len);
-    word->len = len;
-    if (kwg[p].d) printf("%.*s\n", (int)len, word->ptr);
-    if (kwg[p].p) dump_kwg(kwg, word, kwg[p].p, tileset);
-    if (kwg[p].e) break;
-  }
-  word->len = orig_len;
-}
-
-bool do_lang_rkwg(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KwgNode *kwg = (KwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kwg(kwg, &word, kwg[0].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
-
-bool do_lang_rkwg_gaddag(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KwgNode *kwg = (KwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kwg(kwg, &word, kwg[1].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
+#define XWG_NODE_T KwgNode
+#define XWG_NAME kwg
+#include "generic_xwg_read.c"
+#undef XWG_NAME
+#undef XWG_NODE_T
 
 typedef struct { uint8_t c : 6; bool e : 1, d : 1; uint32_t p : 24; } KbwgNode; // compiler-specific UB.
 
-// same code, just changed kwg to kbwg.
-
-void dump_kbwg(KbwgNode *kbwg, VecChar *word, uint32_t p, Tile tileset[static 1]) {
-  size_t orig_len = word->len;
-  for (; p > 0; ++p) {
-    size_t label_len = strlen(tileset[kbwg[p].c].label);
-    size_t len = orig_len + label_len;
-    vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[kbwg[p].c].label, label_len);
-    word->len = len;
-    if (kbwg[p].d) printf("%.*s\n", (int)len, word->ptr);
-    if (kbwg[p].p) dump_kbwg(kbwg, word, kbwg[p].p, tileset);
-    if (kbwg[p].e) break;
-  }
-  word->len = orig_len;
-}
-
-bool do_lang_rkbwg(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KbwgNode *kbwg = (KbwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kbwg(kbwg, &word, kbwg[0].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
-
-bool do_lang_rkbwg_gaddag(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
-  bool errored = false;
-  bool defer_fclose = false;
-  bool defer_free_file_content = false;
-  bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  if (is_big_endian()) swap_bytes_32(file_content, file_size);
-  KbwgNode *kbwg = (KbwgNode *)file_content;
-  VecChar word = vecChar_new(); defer_free_word = true;
-  dump_kbwg(kbwg, &word, kbwg[1].p, tileset);
-  goto cleanup;
-errored: errored = true;
-cleanup:
-  if (defer_free_word) vecChar_free(&word);
-  if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
-  return !errored;
-}
+#define XWG_NODE_T KbwgNode
+#define XWG_NAME kbwg
+#include "generic_xwg_read.c"
+#undef XWG_NAME
+#undef XWG_NODE_T
 
 void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], float **klv_ptr) {
   size_t orig_len = word->len;
@@ -1484,32 +1116,32 @@ bool do_lang(int argc, char **argv, const char lang_name[static 1], ParsedTile t
     return do_lang_klv2(argv, tileset_parse, build_layout);
   } else if (!strcmp(argv[1] + lang_name_len, "-kwg")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 1);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 1, false);
   } else if (!strcmp(argv[1] + lang_name_len, "-kbwg")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kbwg(argv, tileset_parse, build_layout, 1);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 1, true);
   } else if (!strcmp(argv[1] + lang_name_len, "-kwg-alpha")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 2);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 2, false);
   } else if (!strcmp(argv[1] + lang_name_len, "-kwg-dawg")) {
     if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 0);
+    return do_lang_kwg(argv, tileset_parse, build_layout, 0, false);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkwg(argv, tileset);
+    return do_lang_rkwg(argv, tileset, 0);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg-gaddag")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkwg_gaddag(argv, tileset);
+    return do_lang_rkwg(argv, tileset, 1);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkbwg(argv, tileset);
+    return do_lang_rkbwg(argv, tileset, 0);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg-gaddag")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
-    return do_lang_rkbwg_gaddag(argv, tileset);
+    return do_lang_rkbwg(argv, tileset, 1);
   } else if (!strcmp(argv[1] + lang_name_len, "-read-klv2")) {
     if (argc < 3) goto needs_more_args;
     time_goes_to_stderr = true;
