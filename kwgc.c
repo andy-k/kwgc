@@ -1167,6 +1167,7 @@ int main(int argc, char **argv) {
     do_lang(argc, argv, "polish", polish_tileset_parse, polish_tileset) ||
     do_lang(argc, argv, "slovene", slovene_tileset_parse, slovene_tileset) ||
     do_lang(argc, argv, "spanish", spanish_tileset_parse, spanish_tileset) ||
+    do_lang(argc, argv, "swedish", swedish_tileset_parse, swedish_tileset) ||
     do_lang(argc, argv, "decimal", decimal_tileset_parse, decimal_tileset) ||
     do_lang(argc, argv, "hex", hex_tileset_parse, hex_tileset) ||
     false // so newer tilesets can be added without git diff
@@ -1205,6 +1206,6 @@ int main(int argc, char **argv) {
       "  english-read-klv2 infile.klv2\n"
       "    read klv2 on a little-endian system\n"
       "  (english can also be catalan, dutch, french, german, norwegian, polish,\n"
-      "    slovene, spanish, decimal, hex)");
+      "    slovene, spanish, swedish, decimal, hex)");
   }
 }

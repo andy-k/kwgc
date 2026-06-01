@@ -593,6 +593,65 @@ ParsedTile spanish_tileset_parse(uint8_t *ptr) {
   return (ParsedTile){ .len = 0, .index = 0 };
 }
 
+Tile swedish_tileset[] = {
+  { .label = "?", .blank_label = "?" }, // 0
+  { .label = "A", .blank_label = "a" }, // 1
+  { .label = "B", .blank_label = "b" }, // 2
+  { .label = "C", .blank_label = "c" }, // 3
+  { .label = "D", .blank_label = "d" }, // 4
+  { .label = "E", .blank_label = "e" }, // 5
+  { .label = "F", .blank_label = "f" }, // 6
+  { .label = "G", .blank_label = "g" }, // 7
+  { .label = "H", .blank_label = "h" }, // 8
+  { .label = "I", .blank_label = "i" }, // 9
+  { .label = "J", .blank_label = "j" }, // 10
+  { .label = "K", .blank_label = "k" }, // 11
+  { .label = "L", .blank_label = "l" }, // 12
+  { .label = "M", .blank_label = "m" }, // 13
+  { .label = "N", .blank_label = "n" }, // 14
+  { .label = "O", .blank_label = "o" }, // 15
+  { .label = "P", .blank_label = "p" }, // 16
+  { .label = "Q", .blank_label = "q" }, // 17
+  { .label = "R", .blank_label = "r" }, // 18
+  { .label = "S", .blank_label = "s" }, // 19
+  { .label = "T", .blank_label = "t" }, // 20
+  { .label = "U", .blank_label = "u" }, // 21
+  { .label = "V", .blank_label = "v" }, // 22
+  { .label = "W", .blank_label = "w" }, // 23
+  { .label = "X", .blank_label = "x" }, // 24
+  { .label = "Y", .blank_label = "y" }, // 25
+  { .label = "Ü", .blank_label = "ü" }, // 26
+  { .label = "Z", .blank_label = "z" }, // 27
+  { .label = "Å", .blank_label = "å" }, // 28
+  { .label = "Ä", .blank_label = "ä" }, // 29
+  { .label = "Æ", .blank_label = "æ" }, // 30
+  { .label = "Ö", .blank_label = "ö" }, // 31
+};
+
+ParsedTile swedish_tileset_parse(uint8_t *ptr) {
+  static const uint8_t map[26] = {
+    1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,27
+  };
+  if (*ptr == '?') return (ParsedTile){ .len = 1, .index = 0 };
+  switch (*ptr) {
+  case 0xc3:
+    if (ptr[1] == 0x9c) return (ParsedTile){ .len = 2, .index = 26 }; // Ü
+    if (ptr[1] == 0xbc) return (ParsedTile){ .len = 2, .index = 26 }; // ü
+    if (ptr[1] == 0x85) return (ParsedTile){ .len = 2, .index = 28 }; // Å
+    if (ptr[1] == 0xa5) return (ParsedTile){ .len = 2, .index = 28 }; // å
+    if (ptr[1] == 0x84) return (ParsedTile){ .len = 2, .index = 29 }; // Ä
+    if (ptr[1] == 0xa4) return (ParsedTile){ .len = 2, .index = 29 }; // ä
+    if (ptr[1] == 0x86) return (ParsedTile){ .len = 2, .index = 30 }; // Æ
+    if (ptr[1] == 0xa6) return (ParsedTile){ .len = 2, .index = 30 }; // æ
+    if (ptr[1] == 0x96) return (ParsedTile){ .len = 2, .index = 31 }; // Ö
+    if (ptr[1] == 0xb6) return (ParsedTile){ .len = 2, .index = 31 }; // ö
+    break;
+  }
+  uint8_t c = *ptr | 0x20;
+  if (c >= 'a' && c <= 'z') return (ParsedTile){ .len = 1, .index = map[c - 'a'] };
+  return (ParsedTile){ .len = 0, .index = 0 };
+}
+
 Tile *super_catalan_tileset = catalan_tileset;
 ParsedTile (*super_catalan_tileset_parse)(uint8_t *ptr) = catalan_tileset_parse;
 
