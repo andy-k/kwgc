@@ -34,6 +34,13 @@ jobs:
           newest=$(printf '%s\n' /opt/homebrew/bin/gcc-[0-9]* | sort -V | tail -1)
           cc="$newest -isysroot $(xcrun --show-sdk-path)"
         fi
+        if [ "$VENDOR" = clang ] && [ "$(uname)" = Linux ]; then
+          # the Makefile's -march=native, on a runner whose CPU reports
+          # avx10.1-256, has clang warn that the feature set is invalid -- a
+          # verdict on the runner, not the sources, which -Werror would make
+          # the build's.
+          cc="$cc -Wno-invalid-feature-combination"
+        fi
         printf 'CC_ARGS=%s\n' "$cc" >>"$GITHUB_ENV"
     - name: Compiler version
       run: |
