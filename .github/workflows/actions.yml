@@ -13,18 +13,33 @@ jobs:
           vendor: gcc
         - os: ubuntu-latest
           vendor: clang
+        - os: macos-latest
+          vendor: clang
+        - os: macos-latest
+          vendor: gcc
     runs-on: "${{ matrix.os }}"
     steps:
     - uses: actions/checkout@v7
+    - name: Pick the compiler
+      env:
+        VENDOR: "${{ matrix.vendor }}"
+      run: |
+        set -euo pipefail
+        cc=$VENDOR
+        if [ "$VENDOR" = gcc ] && [ "$(uname)" = Darwin ]; then
+          # `gcc` on a mac is a clang shim, so the real one has to be
+          # installed and called by its version -- and it does not look in the
+          # macOS SDK on its own, which is where arpa/inet.h lives.
+          brew install gcc
+          newest=$(printf '%s\n' /opt/homebrew/bin/gcc-[0-9]* | sort -V | tail -1)
+          cc="$newest -isysroot $(xcrun --show-sdk-path)"
+        fi
+        printf 'CC_ARGS=%s\n' "$cc" >>"$GITHUB_ENV"
     - name: Compiler version
-      env:
-        VENDOR: "${{ matrix.vendor }}"
       run: |
         set -euo pipefail
-        "$VENDOR" --version 2>&1
+        ${CC_ARGS%% *} --version 2>&1
     - name: Build
-      env:
-        VENDOR: "${{ matrix.vendor }}"
       run: |
         set -euo pipefail
-        make CC="$VENDOR" 2>&1
+        make CC="$CC_ARGS" 2>&1
