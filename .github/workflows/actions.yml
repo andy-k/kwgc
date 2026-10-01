@@ -39,7 +39,10 @@ jobs:
       run: |
         set -euo pipefail
         ${CC_ARGS%% *} --version 2>&1
-    - name: Build
+    # the Makefile already carries -Wall -Wextra -Wsign-conversion -pedantic,
+    # so -Werror goes on the compiler rather than into CFLAGS, which would
+    # mean repeating that whole line here and letting the two drift apart.
+    - name: Build with a warning as an error
       run: |
         set -euo pipefail
-        make CC="$CC_ARGS" 2>&1
+        make CC="$CC_ARGS -Werror" 2>&1
