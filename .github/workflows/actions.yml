@@ -1,0 +1,30 @@
+name: C
+'on':
+  push:
+  pull_request:
+jobs:
+  build:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: ubuntu-latest
+          vendor: gcc
+        - os: ubuntu-latest
+          vendor: clang
+    runs-on: "${{ matrix.os }}"
+    steps:
+    - uses: actions/checkout@v7
+    - name: Compiler version
+      env:
+        VENDOR: "${{ matrix.vendor }}"
+      run: |
+        set -euo pipefail
+        "$VENDOR" --version 2>&1
+    - name: Build
+      env:
+        VENDOR: "${{ matrix.vendor }}"
+      run: |
+        set -euo pipefail
+        make CC="$VENDOR" 2>&1
