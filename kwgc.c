@@ -922,7 +922,7 @@ static bool is_utf8(const uint8_t *s, size_t len) {
   return true;
 }
 
-bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, bool alphagrams, bool is_gaddag, bool is_kbwg) {
+bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, bool alphagrams, bool is_gaddag, bool is_kbwg, bool blanks) {
   bool errored = false;
   bool defer_free_file_content = false;
   bool defer_free_wl = false;
@@ -935,7 +935,7 @@ bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *)
   Wordlist wl = wordlist_new(); defer_free_wl = true;
   for (size_t i = 0; i < file_size; ) {
     ParsedTile parsed_tile = tileset_parse(file_content + i);
-    if (parsed_tile.len && parsed_tile.index > 0) { // ignore blank
+    if (parsed_tile.len && (parsed_tile.index > 0 || blanks)) { // a blank only with --blanks
       vecByte_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
       ++cur_ofs_len.len;
@@ -1507,31 +1507,38 @@ static bool positionals(int argc, char **argv, int want, const char *what) {
   return false;
 }
 
-bool run_kwg(int argc, char **argv, ParsedTile tileset_parse(uint8_t *)) {
+bool run_kwg(int argc, char **argv, ParsedTile words_parse(uint8_t *), ParsedTile racks_parse(uint8_t *)) {
   static const struct option opts[] = {
     { "graph", required_argument, NULL, 'g' },
     { "words", required_argument, NULL, 'w' },
     { "layout", required_argument, NULL, 'l' },
     { "kbwg", no_argument, NULL, 'b' },
+    { "blanks", no_argument, NULL, 'z' },
     { NULL, 0, NULL, 0 },
   };
   int graph = -1, words = 0, layout = 0;
-  bool kbwg = false;
+  bool kbwg = false, blanks = false;
   for (int c; (c = getopt_long(argc, argv, "", opts, NULL)) != -1; ) {
     switch (c) {
     case 'g': if (!pick("graph", optarg, (const char *const[]){ "gaddawg", "dawg" }, 2, &graph)) return false; break;
     case 'w': if (!pick("words", optarg, (const char *const[]){ "plain", "alphagrams" }, 2, &words)) return false; break;
     case 'l': if (!pick("layout", optarg, layout_names, 5, &layout)) return false; break;
     case 'b': kbwg = true; break;
+    case 'z': blanks = true; break;
     default: return false;
     }
   }
   if (!positionals(argc, argv, 2, "the words, one a line, and the word graph to write")) return false;
+  if (blanks && graph == 0) {
+    fputs("--blanks makes a dawg: tile 0 is the gaddag's separator\n", stderr);
+    return false;
+  }
   bool alphagrams = words == 1;
-  // gaddawg, or a dawg for alphagrams, unless --graph says
-  bool is_gaddag = graph == -1 ? !alphagrams : graph == 0;
+  // gaddawg, or a dawg for alphagrams or --blanks, unless --graph says
+  bool is_gaddag = graph == -1 ? !alphagrams && !blanks : graph == 0;
   if (!strcmp(argv[optind + 1], "-")) time_goes_to_stderr = true;
-  return do_kwg(argv[optind], argv[optind + 1], tileset_parse, layouts[layout], alphagrams, is_gaddag, kbwg);
+  // a word holding tile 0 reads it as a leave does
+  return do_kwg(argv[optind], argv[optind + 1], blanks ? racks_parse : words_parse, layouts[layout], alphagrams, is_gaddag, kbwg, blanks);
 }
 
 bool run_klv(int argc, char **argv, ParsedTile tileset_parse(uint8_t *)) {
@@ -1602,8 +1609,9 @@ void usage(FILE *f) {
     "                     hong-kong-english, norwegian, polish, slovene, spanish,\n"
     "                     super-catalan, super-english, swedish\n"
     "\n"
-    "  kwg [--graph gaddawg|dawg] [--words plain|alphagrams] [--layout L] [--kbwg] WORDS OUT\n"
-    "    generate a word graph from a word list [default: gaddawg; dawg for --words alphagrams]\n"
+    "  kwg [--graph gaddawg|dawg] [--words plain|alphagrams] [--layout L] [--kbwg] [--blanks] WORDS OUT\n"
+    "    generate a word graph from a word list [default: gaddawg; dawg for --words alphagrams or --blanks]\n"
+    "    --blanks: a word may hold ? (tile 0); the graph is then a dawg\n"
     "  klv [--klv 2] [--layout L] LEAVES OUT\n"
     "    generate a leave table from leave,value lines\n"
     "  read-kwg [--graph dawg|gaddag] [--kbwg] KWG OUT\n"
@@ -1655,7 +1663,7 @@ int main(int argc, char **argv) {
   reset_getopt();
   bool ok;
   if (!strcmp(task, "kwg")) {
-    ok = run_kwg(task_argc, task_argv, words_parse);
+    ok = run_kwg(task_argc, task_argv, words_parse, racks_parse);
   } else if (!strcmp(task, "klv")) {
     ok = run_klv(task_argc, task_argv, racks_parse);
   } else if (!strcmp(task, "read-kwg")) {
