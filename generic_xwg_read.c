@@ -10,16 +10,20 @@
 #define XWG_DUMP GENERIC_CONCAT(dump_, XWG_NAME)
 #define XWG_DO_LANG GENERIC_CONCAT(do_lang_r, XWG_NAME)
 
-void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t p, Tile tileset[static 1]) {
+// tile 0 is written zero_label: under the gaddag's root it is the turnaround,
+// "@" as read writes it; under the dawg's root it is the blank, by its label
+void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t p, Tile tileset[static 1], const char *zero_label) {
   size_t orig_len = word->len;
   for (; p > 0; ++p) {
-    size_t label_len = strlen(tileset[nodes[p].c].label);
+    const char *label = tileset[nodes[p].c].label;
+    if (!nodes[p].c) label = zero_label;
+    size_t label_len = strlen(label);
     size_t len = orig_len + label_len;
     vecChar_ensure_cap(word, len);
-    memcpy(word->ptr + orig_len, tileset[nodes[p].c].label, label_len);
+    memcpy(word->ptr + orig_len, label, label_len);
     word->len = len;
     if (nodes[p].d) printf("%.*s\n", (int)len, word->ptr);
-    if (nodes[p].p) XWG_DUMP(nodes, word, nodes[p].p, tileset);
+    if (nodes[p].p) XWG_DUMP(nodes, word, nodes[p].p, tileset, zero_label);
     if (nodes[p].e) break;
   }
   word->len = orig_len;
@@ -34,7 +38,7 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root) {
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
   VecChar word = vecChar_new(); defer_free_word = true;
-  XWG_DUMP(nodes, &word, nodes[root].p, tileset);
+  XWG_DUMP(nodes, &word, nodes[root].p, tileset, root ? "@" : tileset[0].label);
   goto cleanup;
 errored: errored = true;
 cleanup:
