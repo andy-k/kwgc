@@ -9,6 +9,8 @@
 
 #define XWG_DUMP GENERIC_CONCAT(dump_, XWG_NAME)
 #define XWG_HOLDS_TILE_0 GENERIC_CONCAT(holds_tile_0_, XWG_NAME)
+#define XWG_COUNT_WORDS_AT GENERIC_CONCAT(count_words_at_, XWG_NAME)
+#define XWG_CHECK GENERIC_CONCAT(check_, XWG_NAME)
 #define XWG_DO_LANG GENERIC_CONCAT(do_lang_r, XWG_NAME)
 
 // tile 0 is written zero_label: under the gaddag's root it is the turnaround,
@@ -50,6 +52,65 @@ static bool XWG_HOLDS_TILE_0(XWG_NODE_T *nodes, uint32_t p, bool seen[static 1])
   }
 }
 
+// the words from p, as wolges counts them (kwg.rs count_words_at): each node
+// once, and a node met again while it is being counted is a loop
+static bool XWG_COUNT_WORDS_AT(XWG_NODE_T *nodes, uint32_t word_counts[static 1], size_t num_nodes, size_t p, uint32_t count[static 1]) {
+  if (p >= num_nodes) {
+    *count = 0;
+    return true;
+  }
+  if (word_counts[p] == (uint32_t)~0) {
+    fprintf(stderr, "the word graph loops back to node %zu\n", p);
+    return false;
+  }
+  if (!word_counts[p]) {
+    word_counts[p] = (uint32_t)~0; // being counted
+    uint32_t arc_count = 0, next_count = 0;
+    if (nodes[p].p && !XWG_COUNT_WORDS_AT(nodes, word_counts, num_nodes, nodes[p].p, &arc_count)) return false;
+    if (!nodes[p].e && !XWG_COUNT_WORDS_AT(nodes, word_counts, num_nodes, p + 1, &next_count)) return false;
+    uint64_t sum = (uint64_t)nodes[p].d + arc_count + next_count;
+    if (sum >= (uint32_t)~0) {
+      fputs("the word graph holds too many words to count\n", stderr);
+      return false;
+    }
+    word_counts[p] = (uint32_t)sum;
+  }
+  *count = word_counts[p];
+  return true;
+}
+
+// a word graph as wolges loads one before read reads it (kwg.rs
+// from_bytes_alloc, count_words_alloc): whole nodes, at least one; every arc
+// inside; the last node ends its run; no walk loops
+static bool XWG_CHECK(XWG_NODE_T *nodes, size_t file_size) {
+  if (!file_size || file_size % sizeof(XWG_NODE_T)) {
+    fprintf(stderr, "a word graph of %zu bytes is not whole nodes\n", file_size);
+    return false;
+  }
+  size_t num_nodes = file_size / sizeof(XWG_NODE_T);
+  uint32_t max_arc_index = 0;
+  for (size_t p = 0; p < num_nodes; ++p) {
+    if (nodes[p].p > max_arc_index) max_arc_index = nodes[p].p;
+  }
+  if (max_arc_index >= num_nodes) {
+    fprintf(stderr, "the word graph points to node %u, past its %zu nodes\n", max_arc_index, num_nodes);
+    return false;
+  }
+  if (!nodes[num_nodes - 1].e) {
+    fputs("the word graph's last node does not end its run\n", stderr);
+    return false;
+  }
+  uint32_t *word_counts = malloc_or_die(num_nodes * sizeof(uint32_t));
+  memset(word_counts, 0, num_nodes * sizeof(uint32_t));
+  bool ok = true;
+  for (size_t p = num_nodes; ok && p-- > 0; ) {
+    uint32_t count;
+    ok = XWG_COUNT_WORDS_AT(nodes, word_counts, num_nodes, p, &count);
+  }
+  free(word_counts);
+  return ok;
+}
+
 bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool blanks) {
   bool errored = false;
   bool defer_free_file_content = false;
@@ -59,11 +120,12 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
   uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
+  if (!XWG_CHECK(nodes, file_size)) goto errored;
+  size_t num_nodes = file_size / sizeof(XWG_NODE_T);
   // under the dawg's root tile 0 is a blank, read only with --blanks (read's
   // rule), so it is refused before a word is written
   bool *seen = NULL;
   if (!root && !blanks && nodes[0].p) {
-    size_t num_nodes = file_size / sizeof(XWG_NODE_T);
     seen = malloc_or_die(num_nodes * sizeof(bool)); defer_free_seen = true;
     memset(seen, 0, num_nodes * sizeof(bool));
     if (XWG_HOLDS_TILE_0(nodes, nodes[0].p, seen)) {
@@ -72,7 +134,9 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
     }
   }
   VecChar word = vecChar_new(); defer_free_word = true;
-  XWG_DUMP(nodes, &word, nodes[root].p, tileset, root ? "@" : tileset[0].label);
+  // a graph of one node (an empty dawg) has no node 1: wolges' copy of node 0
+  // stands in for the gaddag
+  XWG_DUMP(nodes, &word, nodes[(size_t)root < num_nodes ? root : 0].p, tileset, root ? "@" : tileset[0].label);
   goto cleanup;
 errored: errored = true;
 cleanup:
@@ -83,5 +147,7 @@ cleanup:
 }
 
 #undef XWG_DO_LANG
+#undef XWG_CHECK
+#undef XWG_COUNT_WORDS_AT
 #undef XWG_HOLDS_TILE_0
 #undef XWG_DUMP
