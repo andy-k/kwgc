@@ -655,6 +655,278 @@ void kwgc_states_defragger_build_wolges(KwgcStatesDefragger self[static 1], uint
   free(idxs);
 }
 
+// buildlex's --reordered (wolges build.rs reorder_states): a list that is a
+// sublist of a longer one takes an order that puts it at that list's tail,
+// so the two share nodes, and the states are made again in those orders. a
+// list the dawg reaches in a gaddawg keeps its tile order.
+
+static bool kwgc_is_sublist(KwgcState *states, uint32_t a, uint32_t b) {
+  while (a) {
+    KwgcState *a_state = &states[a];
+    while (true) {
+      if (!b) return false;
+      KwgcState *b_state = &states[b];
+      if (b_state->tile > a_state->tile) return false;
+      b = b_state->next_index;
+      if (b_state->tile == a_state->tile) {
+        if (b_state->accepts != a_state->accepts || b_state->arc_index != a_state->arc_index) return false;
+        break;
+      }
+    }
+    a = a_state->next_index;
+  }
+  return true;
+}
+
+typedef struct {
+  KwgcState *states;
+  uint32_t *movable;
+  uint32_t *to_end_lens;
+  uint32_t *postings;
+  uint32_t *postings_starts;
+  uint32_t *rarest_entries;
+  uint32_t *tried; // stamped with the list being placed
+  uint32_t stamp;
+} KwgcAbsorber;
+
+static bool kwgc_absorb(KwgcAbsorber self[static 1], uint32_t tails[static 1], uint32_t i) {
+  uint32_t head = self->movable[i];
+  uint32_t len = self->to_end_lens[head];
+  uint32_t rarest_entry = self->rarest_entries[i];
+  for (uint32_t k = self->postings_starts[rarest_entry]; k < self->postings_starts[rarest_entry + 1]; ++k) {
+    uint32_t j = self->postings[k];
+    if (j == i || self->tried[j] == self->stamp) continue;
+    uint32_t host = self->movable[j];
+    if (self->to_end_lens[host] <= len || !kwgc_is_sublist(self->states, head, host)) continue;
+    self->tried[j] = self->stamp;
+    if (tails[j] == (uint32_t)~0 || kwgc_absorb(self, tails, tails[j])) {
+      tails[j] = i;
+      return true;
+    }
+  }
+  return false;
+}
+
+uint32_t *qc_ref_movable; // temp global, do not free().
+int qc_reorder_by_len(const void *a, const void *b) {
+  uint32_t head_a = qc_ref_movable[*(uint32_t *)a];
+  uint32_t head_b = qc_ref_movable[*(uint32_t *)b];
+  uint32_t len_a = qc_ref_to_end_lens[head_a];
+  uint32_t len_b = qc_ref_to_end_lens[head_b];
+  if (len_a != len_b) return len_a > len_b ? -1 : 1;
+  return (head_a > head_b) - (head_a < head_b);
+}
+
+// an entry is a node's tile, accepts and arc, keyed as a state with no next
+static inline KwgcState kwgc_entry_key(KwgcState state[static 1]) {
+  return (KwgcState){
+      .arc_index = state->arc_index,
+      .next_index = 0,
+      .tile = state->tile,
+      .accepts = state->accepts,
+    };
+}
+
+static inline void kwgc_push_remade_transition(VecKwgcTransition transitions[static 1], KwgcState state[static 1], uint32_t new_heads[static 1]) {
+  vecKwgcTransition_push(transitions, &(KwgcTransition){
+      .arc_index = new_heads[state->arc_index],
+      .tile = state->tile,
+      .accepts = state->accepts,
+    });
+}
+
+static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_gaddag, uint32_t dawg_start_state[static 1], uint32_t gaddag_start_state[static 1]) {
+  KwgcState *states = state_maker->states.ptr;
+  uint32_t states_len = (uint32_t)state_maker->states.len;
+  uint32_t *to_end_lens = malloc_or_die(states_len * sizeof(uint32_t));
+  for (uint32_t p = 0; p < states_len; ++p) {
+    to_end_lens[p] = 1;
+    uint32_t next = states[p].next_index;
+    if (next) to_end_lens[p] += to_end_lens[next];
+  }
+
+  bool *is_head = malloc_or_die(states_len * sizeof(bool));
+  memset(is_head, 0, states_len * sizeof(bool));
+  for (uint32_t p = 1; p < states_len; ++p) is_head[states[p].arc_index] = true;
+  is_head[*dawg_start_state] = true;
+  is_head[*gaddag_start_state] = true;
+  is_head[0] = false;
+
+  bool *has_dawg = malloc_or_die(states_len * sizeof(bool));
+  memset(has_dawg, 0, states_len * sizeof(bool));
+  if (is_gaddag) {
+    bool *in_dawg = malloc_or_die(states_len * sizeof(bool));
+    memset(in_dawg, 0, states_len * sizeof(bool));
+    in_dawg[*dawg_start_state] = true;
+    for (uint32_t p = states_len - 1; p > 0; --p) {
+      if (in_dawg[p]) {
+        in_dawg[states[p].arc_index] = true;
+        in_dawg[states[p].next_index] = true;
+      }
+    }
+    for (uint32_t p = 1; p < states_len; ++p) has_dawg[p] = in_dawg[p] || has_dawg[states[p].next_index];
+    free(in_dawg);
+  }
+
+  VecU32 movable = vecU32_new();
+  for (uint32_t p = 1; p < states_len; ++p) {
+    if (is_head[p] && !has_dawg[p]) vecU32_push(&movable, &p);
+  }
+  uint32_t num_movable = (uint32_t)movable.len;
+
+  KhmKwgcStateU32 entry_indexes = khmKwgcStateU32_new();
+  VecU32 entry_counts = vecU32_new();
+  for (uint32_t i = 0; i < num_movable; ++i) {
+    for (uint32_t p = movable.ptr[i]; p; p = states[p].next_index) {
+      KwgcState key = kwgc_entry_key(&states[p]);
+      uint32_t *found = khmKwgcStateU32_get(&entry_indexes, &key);
+      uint32_t entry_index;
+      if (found) {
+        entry_index = *found;
+      } else {
+        entry_index = (uint32_t)entry_counts.len;
+        khmKwgcStateU32_set(&entry_indexes, &key, &entry_index);
+        uint32_t zero = 0;
+        vecU32_push(&entry_counts, &zero);
+      }
+      ++entry_counts.ptr[entry_index];
+    }
+  }
+  uint32_t num_entries = (uint32_t)entry_counts.len;
+  uint32_t *postings_starts = malloc_or_die((num_entries + 1) * sizeof(uint32_t));
+  uint32_t num_postings = 0;
+  for (uint32_t e = 0; e < num_entries; ++e) {
+    postings_starts[e] = num_postings;
+    num_postings += entry_counts.ptr[e];
+  }
+  postings_starts[num_entries] = num_postings;
+  uint32_t *postings = malloc_or_die((num_postings + 1) * sizeof(uint32_t));
+  uint32_t *postings_fill = malloc_or_die((num_entries + 1) * sizeof(uint32_t));
+  memcpy(postings_fill, postings_starts, (num_entries + 1) * sizeof(uint32_t));
+  uint32_t *rarest_entries = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  for (uint32_t i = 0; i < num_movable; ++i) {
+    uint32_t rarest_entry = 0;
+    uint32_t rarest_count = (uint32_t)~0;
+    for (uint32_t p = movable.ptr[i]; p; p = states[p].next_index) {
+      KwgcState key = kwgc_entry_key(&states[p]);
+      uint32_t entry_index = *khmKwgcStateU32_get(&entry_indexes, &key);
+      postings[postings_fill[entry_index]++] = i;
+      uint32_t entry_count = entry_counts.ptr[entry_index];
+      if (entry_count < rarest_count) {
+        rarest_count = entry_count;
+        rarest_entry = entry_index;
+      }
+    }
+    rarest_entries[i] = rarest_entry;
+  }
+  free(postings_fill);
+  vecU32_free(&entry_counts);
+  khmKwgcStateU32_free(&entry_indexes);
+
+  // the longest list first, then the earliest
+  uint32_t *by_len = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  for (uint32_t i = 0; i < num_movable; ++i) by_len[i] = i;
+  qc_ref_movable = movable.ptr;
+  qc_ref_to_end_lens = to_end_lens;
+  qsort(by_len, num_movable, sizeof(uint32_t), qc_reorder_by_len);
+
+  uint32_t *tails = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  uint32_t *tried = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  for (uint32_t i = 0; i < num_movable; ++i) tails[i] = tried[i] = (uint32_t)~0;
+  KwgcAbsorber absorber = {
+      .states = states,
+      .movable = movable.ptr,
+      .to_end_lens = to_end_lens,
+      .postings = postings,
+      .postings_starts = postings_starts,
+      .rarest_entries = rarest_entries,
+      .tried = tried,
+      .stamp = 0,
+    };
+  for (uint32_t k = 0; k < num_movable; ++k) {
+    absorber.stamp = by_len[k];
+    kwgc_absorb(&absorber, tails, by_len[k]);
+  }
+
+  uint32_t *order_starts = malloc_or_die(states_len * sizeof(uint32_t)); // 0 = keep the order it has.
+  memset(order_starts, 0, states_len * sizeof(uint32_t));
+  VecU32 order_cells = vecU32_new(); // index 0 stands for "no order of its own".
+  {
+    uint32_t zero = 0;
+    vecU32_push(&order_cells, &zero);
+  }
+  for (uint32_t k = num_movable; k-- > 0; ) {
+    uint32_t i = by_len[k];
+    uint32_t tail = tails[i];
+    if (tail == (uint32_t)~0) continue;
+    uint32_t head = movable.ptr[i];
+    uint32_t tail_head = movable.ptr[tail];
+    order_starts[head] = (uint32_t)order_cells.len;
+    uint32_t q = tail_head;
+    for (uint32_t p = head; p; p = states[p].next_index) {
+      while (q && states[q].tile < states[p].tile) q = states[q].next_index;
+      if (q && states[q].tile == states[p].tile) {
+        q = states[q].next_index;
+      } else {
+        vecU32_push(&order_cells, &p);
+      }
+    }
+    uint32_t tail_order_start = order_starts[tail_head];
+    if (tail_order_start) {
+      uint32_t n = to_end_lens[tail_head];
+      vecU32_ensure_cap(&order_cells, order_cells.len + n);
+      memcpy(order_cells.ptr + order_cells.len, order_cells.ptr + tail_order_start, n * sizeof(uint32_t));
+      order_cells.len += n;
+    } else {
+      for (uint32_t p = tail_head; p; p = states[p].next_index) vecU32_push(&order_cells, &p);
+    }
+  }
+
+  KwgcStateMaker new_state_maker = kwgc_state_maker_new();
+  vecKwgcState_push(&new_state_maker.states, &states[0]);
+  {
+    uint32_t zero = 0;
+    khmKwgcStateU32_set(&new_state_maker.states_finder, new_state_maker.states.ptr, &zero);
+  }
+  uint32_t *new_heads = malloc_or_die(states_len * sizeof(uint32_t));
+  memset(new_heads, 0, states_len * sizeof(uint32_t));
+  VecKwgcTransition transitions = vecKwgcTransition_new();
+  for (uint32_t p = 1; p < states_len; ++p) {
+    if (!is_head[p]) continue;
+    transitions.len = 0;
+    uint32_t order_start = order_starts[p];
+    if (order_start) {
+      for (uint32_t c = 0; c < to_end_lens[p]; ++c) {
+        kwgc_push_remade_transition(&transitions, &states[order_cells.ptr[order_start + c]], new_heads);
+      }
+    } else {
+      for (uint32_t q = p; q; q = states[q].next_index) {
+        kwgc_push_remade_transition(&transitions, &states[q], new_heads);
+      }
+    }
+    new_heads[p] = kwgc_state_maker_make_state(&new_state_maker, &transitions, 0);
+  }
+  *dawg_start_state = new_heads[*dawg_start_state];
+  *gaddag_start_state = new_heads[*gaddag_start_state];
+
+  vecKwgcTransition_free(&transitions);
+  free(new_heads);
+  vecU32_free(&order_cells);
+  free(order_starts);
+  free(tried);
+  free(tails);
+  free(by_len);
+  free(rarest_entries);
+  free(postings);
+  free(postings_starts);
+  vecU32_free(&movable);
+  free(has_dawg);
+  free(is_head);
+  free(to_end_lens);
+  kwgc_state_maker_free(state_maker);
+  *state_maker = new_state_maker;
+}
+
 typedef void (*WriteNodeFn)(uint8_t *, uint32_t, bool, bool, uint8_t);
 
 static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, bool is_end, bool accepts, uint8_t tile) {
@@ -665,7 +937,7 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
 }
 
 // ret must initially be empty.
-static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout, WriteNodeFn write_node, uint32_t max_nodes) {
+static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout, bool reordered, WriteNodeFn write_node, uint32_t max_nodes) {
   KwgcStateMaker state_maker = kwgc_state_maker_new();
   // The sink state always exists.
   vecKwgcState_push(&state_maker.states, &(KwgcState){
@@ -714,6 +986,7 @@ static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], boo
     gaddag_start_state = kwgc_state_maker_make_dawg(&state_maker, &gaddag_wl, dawg_start_state, true);
     wordlist_free(&gaddag_wl);
   }
+  if (reordered) kwgc_reorder_states(&state_maker, is_gaddag, &dawg_start_state, &gaddag_start_state);
   uint32_t *head_indexes = NULL;
   switch (build_layout) {
     case BuildLayout_Magpie:
@@ -922,7 +1195,7 @@ static bool is_utf8(const uint8_t *s, size_t len) {
   return true;
 }
 
-bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, bool alphagrams, bool is_gaddag, bool is_kbwg, bool blanks) {
+bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, bool reordered, bool alphagrams, bool is_gaddag, bool is_kbwg, bool blanks) {
   bool errored = false;
   bool defer_free_file_content = false;
   bool defer_free_wl = false;
@@ -960,7 +1233,7 @@ bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *)
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  xwgc_build(&ret, &wl, is_gaddag, build_layout, is_kbwg ? kbwgc_write_node : kwgc_write_node, is_kbwg ? 0x1000000 : 0x400000);
+  xwgc_build(&ret, &wl, is_gaddag, build_layout, reordered, is_kbwg ? kbwgc_write_node : kwgc_write_node, is_kbwg ? 0x1000000 : 0x400000);
   if (!ret.len) goto errored;
   if (!write_all(out, ret.ptr, ret.len * sizeof(uint32_t))) goto errored;
   goto cleanup;
@@ -1136,7 +1409,7 @@ bool do_klv(const char *in, const char *out_path, ParsedTile tileset_parse(uint8
     }
   }
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  xwgc_build(&ret, &wl, false, build_layout, kwgc_write_node, 0x400000);
+  xwgc_build(&ret, &wl, false, build_layout, false, kwgc_write_node, 0x400000);
   if (!ret.len) goto errored;
   size_t out_len = ret.len + wl.tiles_slices.len + 2;
   uint8_t *out = malloc_or_die(out_len * sizeof(uint32_t)); defer_free_out = true;
@@ -1514,10 +1787,11 @@ bool run_kwg(int argc, char **argv, ParsedTile words_parse(uint8_t *), ParsedTil
     { "layout", required_argument, NULL, 'l' },
     { "kbwg", no_argument, NULL, 'b' },
     { "blanks", no_argument, NULL, 'z' },
+    { "reordered", no_argument, NULL, 'r' },
     { NULL, 0, NULL, 0 },
   };
   int graph = -1, words = 0, layout = 0;
-  bool kbwg = false, blanks = false;
+  bool kbwg = false, blanks = false, reordered = false;
   for (int c; (c = getopt_long(argc, argv, "", opts, NULL)) != -1; ) {
     switch (c) {
     case 'g': if (!pick("graph", optarg, (const char *const[]){ "gaddawg", "dawg" }, 2, &graph)) return false; break;
@@ -1525,6 +1799,7 @@ bool run_kwg(int argc, char **argv, ParsedTile words_parse(uint8_t *), ParsedTil
     case 'l': if (!pick("layout", optarg, layout_names, 5, &layout)) return false; break;
     case 'b': kbwg = true; break;
     case 'z': blanks = true; break;
+    case 'r': reordered = true; break;
     default: return false;
     }
   }
@@ -1534,11 +1809,15 @@ bool run_kwg(int argc, char **argv, ParsedTile words_parse(uint8_t *), ParsedTil
     return false;
   }
   bool alphagrams = words == 1;
+  if (reordered && alphagrams) {
+    fputs("alphagrams cannot be reordered: an alpha dawg is walked in tile order\n", stderr);
+    return false;
+  }
   // gaddawg, or a dawg for alphagrams or --blanks, unless --graph says
   bool is_gaddag = graph == -1 ? !alphagrams && !blanks : graph == 0;
   if (!strcmp(argv[optind + 1], "-")) time_goes_to_stderr = true;
   // a word holding tile 0 reads it as a leave does
-  return do_kwg(argv[optind], argv[optind + 1], blanks ? racks_parse : words_parse, layouts[layout], alphagrams, is_gaddag, kbwg, blanks);
+  return do_kwg(argv[optind], argv[optind + 1], blanks ? racks_parse : words_parse, layouts[layout], reordered, alphagrams, is_gaddag, kbwg, blanks);
 }
 
 bool run_klv(int argc, char **argv, ParsedTile tileset_parse(uint8_t *)) {
@@ -1615,8 +1894,10 @@ void usage(FILE *f) {
     "                     hong-kong-english, norwegian, polish, slovene, spanish,\n"
     "                     super-catalan, super-english, swedish\n"
     "\n"
-    "  kwg [--graph gaddawg|dawg] [--words plain|alphagrams] [--layout L] [--kbwg] [--blanks] WORDS OUT\n"
+    "  kwg [--graph gaddawg|dawg] [--words plain|alphagrams] [--layout L] [--reordered] [--kbwg] [--blanks] WORDS OUT\n"
     "    generate a word graph from a word list [default: gaddawg; dawg for --words alphagrams or --blanks]\n"
+    "    --reordered: a smaller graph: each node's children in whatever order shares the most\n"
+    "      nodes, instead of in tile order (not for alphagrams)\n"
     "    --blanks: a word may hold ? (tile 0); the graph is then a dawg\n"
     "  klv [--klv 2] [--layout L] LEAVES OUT\n"
     "    generate a leave table from leave,value lines\n"
