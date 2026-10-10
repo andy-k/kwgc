@@ -122,6 +122,12 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
   if (!XWG_CHECK(nodes, file_size)) goto errored;
   size_t num_nodes = file_size / sizeof(XWG_NODE_T);
+  // a graph of one node (an empty dawg) has no node 1, so no gaddag; read
+  // refuses to read one too
+  if ((size_t)root >= num_nodes) {
+    fputs("the word graph has no gaddag: it is one node\n", stderr);
+    goto errored;
+  }
   // under the dawg's root tile 0 is a blank, read only with --blanks (read's
   // rule), so it is refused before a word is written
   bool *seen = NULL;
@@ -134,9 +140,7 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
     }
   }
   VecChar word = vecChar_new(); defer_free_word = true;
-  // a graph of one node (an empty dawg) has no node 1: wolges' copy of node 0
-  // stands in for the gaddag
-  XWG_DUMP(nodes, &word, nodes[(size_t)root < num_nodes ? root : 0].p, tileset, root ? "@" : tileset[0].label);
+  XWG_DUMP(nodes, &word, nodes[root].p, tileset, root ? "@" : tileset[0].label);
   goto cleanup;
 errored: errored = true;
 cleanup:
