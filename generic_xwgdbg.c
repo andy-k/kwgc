@@ -15,6 +15,12 @@
 #undef VEC_ELT_T
 #undef VEC_ELT_NAME
 
+#define XWG_NODE_T XWGDBG_NODE_T
+#define XWG_NAME dbg
+#include "generic_xwg_check.c"
+#undef XWG_NAME
+#undef XWG_NODE_T
+
 static void dump(XWGDBG_NODE_T *nodes, VecByte *buf, size_t l, uint32_t p) {
   for (; p > 0; ++p) {
     vecByte_ensure_cap(buf, l + 1);
@@ -40,6 +46,7 @@ int main(int argc, char **argv) {
   if ((file_size & 3) != 0 || !((size_t)dawgroot < (file_size >> 2))) { fputs("unexpected file size\n", stderr); goto errored; }
   XWGDBG_NODE_T *nodes = mmap(NULL, file_size, PROT_READ, MAP_SHARED, fileno(f), 0); if (nodes == MAP_FAILED) { perror("mmap"); goto errored; } defer_munmap = true;
   defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
+  if (!check_dbg(nodes, file_size, NULL)) goto errored;
   VecByte buf = vecByte_new();
   dump(nodes, &buf, 0, nodes[dawgroot].p);
   vecByte_free(&buf);
