@@ -1491,19 +1491,36 @@ void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], 
 bool do_read_klv(const char *in, Tile tileset[static 1]) {
   bool errored = false;
   bool defer_free_file_content = false;
+  bool defer_free_klv1_values = false;
   bool defer_free_word = false;
   size_t file_size;
   uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   uint32_t num_kwg_nodes = *(uint32_t *)file_content;
   KwgNode *kwg = (KwgNode *)(file_content + sizeof(uint32_t));
-  float *klv_values = (float *)(file_content + sizeof(uint32_t) * (2 + num_kwg_nodes));
+  uint32_t num_leaves = *(uint32_t *)(file_content + sizeof(uint32_t) * (1 + num_kwg_nodes));
+  uint8_t *values = file_content + sizeof(uint32_t) * (2 + num_kwg_nodes);
+  size_t values_len = file_size - sizeof(uint32_t) * (2 + num_kwg_nodes);
+  float *klv_values = (float *)values;
+  // a klv's values are 16 bits, in 256ths, where a klv2's are f32; the size
+  // tells them apart, as read tells them
+  float *klv1_values = NULL;
+  if ((size_t)num_leaves * 2 == values_len && (size_t)num_leaves * 4 != values_len) {
+    klv1_values = malloc_or_die(((size_t)num_leaves + 1) * sizeof(float)); defer_free_klv1_values = true;
+    for (uint32_t i = 0; i < num_leaves; ++i) {
+      int16_t v;
+      memcpy(&v, values + 2 * (size_t)i, sizeof(v));
+      klv1_values[i] = (float)v * (1.0f / 256.0f);
+    }
+    klv_values = klv1_values;
+  }
   VecChar word = vecChar_new(); defer_free_word = true;
   dump_klv2(kwg, &word, kwg[0].p, tileset, &klv_values);
   goto cleanup;
 errored: errored = true;
 cleanup:
   if (defer_free_word) vecChar_free(&word);
+  if (defer_free_klv1_values) free(klv1_values);
   if (defer_free_file_content) free(file_content);
   return !errored;
 }
