@@ -81,8 +81,9 @@ static bool XWG_COUNT_WORDS_AT(XWG_NODE_T *nodes, uint32_t word_counts[static 1]
 
 // a word graph as wolges loads one before read reads it (kwg.rs
 // from_bytes_alloc, count_words_alloc): whole nodes, at least one; every arc
-// inside; the last node ends its run; no walk loops
-static bool XWG_CHECK(XWG_NODE_T *nodes, size_t file_size) {
+// inside; the last node ends its run; no walk loops. its word counts go to
+// *counts if counts is not NULL, for the caller to free.
+static bool XWG_CHECK(XWG_NODE_T *nodes, size_t file_size, uint32_t **counts) {
   if (!file_size || file_size % sizeof(XWG_NODE_T)) {
     fprintf(stderr, "a word graph of %zu bytes is not whole nodes\n", file_size);
     return false;
@@ -107,7 +108,11 @@ static bool XWG_CHECK(XWG_NODE_T *nodes, size_t file_size) {
     uint32_t count;
     ok = XWG_COUNT_WORDS_AT(nodes, word_counts, num_nodes, p, &count);
   }
-  free(word_counts);
+  if (ok && counts) {
+    *counts = word_counts;
+  } else {
+    free(word_counts);
+  }
   return ok;
 }
 
@@ -120,7 +125,7 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
   uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
-  if (!XWG_CHECK(nodes, file_size)) goto errored;
+  if (!XWG_CHECK(nodes, file_size, NULL)) goto errored;
   size_t num_nodes = file_size / sizeof(XWG_NODE_T);
   // a graph of one node (an empty dawg) has no node 1, so no gaddag; read
   // refuses to read one too
