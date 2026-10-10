@@ -12,10 +12,20 @@
 #define XWG_DO_LANG GENERIC_CONCAT(do_lang_r, XWG_NAME)
 
 // tile 0 is written zero_label: under the gaddag's root it is the turnaround,
-// "@" as read writes it; under the dawg's root it is the blank, by its label
-void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t p, Tile tileset[static 1], const char *zero_label) {
+// "@" as read writes it; under the dawg's root it is the blank, by its label.
+// a list is taken in tile order, as read takes it, whatever order a reordered
+// graph holds it in
+void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t first_p, Tile tileset[static 1], const char *zero_label) {
+  if (!first_p) return;
   size_t orig_len = word->len;
-  for (; p > 0; ++p) {
+  for (int prev_tile = -1; ; ) {
+    uint32_t p = 0;
+    for (uint32_t q = first_p; ; ++q) {
+      if (nodes[q].c > prev_tile && (!p || nodes[q].c < nodes[p].c)) p = q;
+      if (nodes[q].e) break;
+    }
+    if (!p) break;
+    prev_tile = nodes[p].c;
     const char *label = tileset[nodes[p].c].label;
     if (!nodes[p].c) label = zero_label;
     size_t label_len = strlen(label);
@@ -25,7 +35,6 @@ void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t p, Tile tileset[static 
     word->len = len;
     if (nodes[p].d) printf("%.*s\n", (int)len, word->ptr);
     if (nodes[p].p) XWG_DUMP(nodes, word, nodes[p].p, tileset, zero_label);
-    if (nodes[p].e) break;
   }
   word->len = orig_len;
 }
