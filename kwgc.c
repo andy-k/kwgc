@@ -1491,19 +1491,61 @@ void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], 
 bool do_read_klv(const char *in, Tile tileset[static 1]) {
   bool errored = false;
   bool defer_free_file_content = false;
+  bool defer_free_klv1_values = false;
   bool defer_free_word = false;
   size_t file_size;
   uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
+  // a leave table as wolges loads one before read reads it (klv.rs split_klv,
+  // load_leaves_graph): its header, the kwg it declares, the leaves' count,
+  // values all of one width, a sound kwg, and one value a leave
+  if (file_size < sizeof(uint32_t)) {
+    fputs("klv is too short for its header\n", stderr);
+    goto errored;
+  }
   uint32_t num_kwg_nodes = *(uint32_t *)file_content;
+  size_t kwg_len = (size_t)num_kwg_nodes * sizeof(uint32_t);
+  if (file_size - sizeof(uint32_t) < kwg_len || file_size - sizeof(uint32_t) - kwg_len < sizeof(uint32_t)) {
+    fputs("klv is too short for the kwg it declares\n", stderr);
+    goto errored;
+  }
   KwgNode *kwg = (KwgNode *)(file_content + sizeof(uint32_t));
-  float *klv_values = (float *)(file_content + sizeof(uint32_t) * (2 + num_kwg_nodes));
+  uint32_t num_leaves = *(uint32_t *)(file_content + sizeof(uint32_t) + kwg_len);
+  uint8_t *values = file_content + 2 * sizeof(uint32_t) + kwg_len;
+  size_t values_len = file_size - 2 * sizeof(uint32_t) - kwg_len;
+  // a klv's values are 16 bits, in 256ths, where a klv2's are f32; the size
+  // tells them apart, as read tells them
+  bool is_klv2 = (size_t)num_leaves * 4 == values_len;
+  if (!is_klv2 && (size_t)num_leaves * 2 != values_len) {
+    fprintf(stderr, "klv has %zu bytes for its %u leave values\n", values_len, num_leaves);
+    goto errored;
+  }
+  uint32_t *word_counts;
+  if (!check_kwg(kwg, kwg_len, &word_counts)) goto errored;
+  uint32_t num_words = kwg[0].p ? word_counts[kwg[0].p] : 0;
+  free(word_counts);
+  if (num_words != num_leaves) {
+    fprintf(stderr, "klv has %u leave values for %u leaves\n", num_leaves, num_words);
+    goto errored;
+  }
+  float *klv_values = (float *)values;
+  float *klv1_values = NULL;
+  if (!is_klv2) {
+    klv1_values = malloc_or_die(((size_t)num_leaves + 1) * sizeof(float)); defer_free_klv1_values = true;
+    for (uint32_t i = 0; i < num_leaves; ++i) {
+      int16_t v;
+      memcpy(&v, values + 2 * (size_t)i, sizeof(v));
+      klv1_values[i] = (float)v * (1.0f / 256.0f);
+    }
+    klv_values = klv1_values;
+  }
   VecChar word = vecChar_new(); defer_free_word = true;
   dump_klv2(kwg, &word, kwg[0].p, tileset, &klv_values);
   goto cleanup;
 errored: errored = true;
 cleanup:
   if (defer_free_word) vecChar_free(&word);
+  if (defer_free_klv1_values) free(klv1_values);
   if (defer_free_file_content) free(file_content);
   return !errored;
 }

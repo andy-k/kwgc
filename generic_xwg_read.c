@@ -7,8 +7,11 @@
 // undef XWG_NAME
 // undef XWG_NODE_T
 
+#include "generic_xwg_check.c"
+
 #define XWG_DUMP GENERIC_CONCAT(dump_, XWG_NAME)
 #define XWG_HOLDS_TILE_0 GENERIC_CONCAT(holds_tile_0_, XWG_NAME)
+#define XWG_CHECK GENERIC_CONCAT(check_, XWG_NAME)
 #define XWG_DO_LANG GENERIC_CONCAT(do_lang_r, XWG_NAME)
 
 // tile 0 is written zero_label: under the gaddag's root it is the turnaround,
@@ -59,11 +62,18 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
   uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
+  if (!XWG_CHECK(nodes, file_size, NULL)) goto errored;
+  size_t num_nodes = file_size / sizeof(XWG_NODE_T);
+  // a graph of one node (an empty dawg) has no node 1, so no gaddag; read
+  // refuses to read one too
+  if ((size_t)root >= num_nodes) {
+    fputs("the word graph has no gaddag: it is one node\n", stderr);
+    goto errored;
+  }
   // under the dawg's root tile 0 is a blank, read only with --blanks (read's
   // rule), so it is refused before a word is written
   bool *seen = NULL;
   if (!root && !blanks && nodes[0].p) {
-    size_t num_nodes = file_size / sizeof(XWG_NODE_T);
     seen = malloc_or_die(num_nodes * sizeof(bool)); defer_free_seen = true;
     memset(seen, 0, num_nodes * sizeof(bool));
     if (XWG_HOLDS_TILE_0(nodes, nodes[0].p, seen)) {
@@ -83,5 +93,6 @@ cleanup:
 }
 
 #undef XWG_DO_LANG
+#undef XWG_CHECK
 #undef XWG_HOLDS_TILE_0
 #undef XWG_DUMP
