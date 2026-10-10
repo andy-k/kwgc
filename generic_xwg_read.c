@@ -8,6 +8,7 @@
 // undef XWG_NODE_T
 
 #define XWG_DUMP GENERIC_CONCAT(dump_, XWG_NAME)
+#define XWG_HOLDS_TILE_0 GENERIC_CONCAT(holds_tile_0_, XWG_NAME)
 #define XWG_DO_LANG GENERIC_CONCAT(do_lang_r, XWG_NAME)
 
 // tile 0 is written zero_label: under the gaddag's root it is the turnaround,
@@ -29,23 +30,49 @@ void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t p, Tile tileset[static 
   word->len = orig_len;
 }
 
-bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root) {
+// whether the list at p, or one under it, holds tile 0; each list once
+static bool XWG_HOLDS_TILE_0(XWG_NODE_T *nodes, uint32_t p, bool seen[static 1]) {
+  if (seen[p]) return false;
+  seen[p] = true;
+  for (; ; ++p) {
+    if (!nodes[p].c) return true;
+    if (nodes[p].p && XWG_HOLDS_TILE_0(nodes, nodes[p].p, seen)) return true;
+    if (nodes[p].e) return false;
+  }
+}
+
+bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool blanks) {
   bool errored = false;
   bool defer_free_file_content = false;
+  bool defer_free_seen = false;
   bool defer_free_word = false;
   size_t file_size;
   uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
+  // under the dawg's root tile 0 is a blank, read only with --blanks (read's
+  // rule), so it is refused before a word is written
+  bool *seen = NULL;
+  if (!root && !blanks && nodes[0].p) {
+    size_t num_nodes = file_size / sizeof(XWG_NODE_T);
+    seen = malloc_or_die(num_nodes * sizeof(bool)); defer_free_seen = true;
+    memset(seen, 0, num_nodes * sizeof(bool));
+    if (XWG_HOLDS_TILE_0(nodes, nodes[0].p, seen)) {
+      fputs("the dawg holds a blank (tile 0): read it with --blanks\n", stderr);
+      goto errored;
+    }
+  }
   VecChar word = vecChar_new(); defer_free_word = true;
   XWG_DUMP(nodes, &word, nodes[root].p, tileset, root ? "@" : tileset[0].label);
   goto cleanup;
 errored: errored = true;
 cleanup:
   if (defer_free_word) vecChar_free(&word);
+  if (defer_free_seen) free(seen);
   if (defer_free_file_content) free(file_content);
   return !errored;
 }
 
 #undef XWG_DO_LANG
+#undef XWG_HOLDS_TILE_0
 #undef XWG_DUMP

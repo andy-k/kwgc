@@ -1573,20 +1573,26 @@ bool run_read_kwg(int argc, char **argv, Tile tileset[static 1]) {
   static const struct option opts[] = {
     { "graph", required_argument, NULL, 'g' },
     { "kbwg", no_argument, NULL, 'b' },
+    { "blanks", no_argument, NULL, 'z' },
     { NULL, 0, NULL, 0 },
   };
   int graph = 0;
-  bool kbwg = false;
+  bool kbwg = false, blanks = false;
   for (int c; (c = getopt_long(argc, argv, "", opts, NULL)) != -1; ) {
     switch (c) {
     case 'g': if (!pick("graph", optarg, (const char *const[]){ "dawg", "gaddag" }, 2, &graph)) return false; break;
     case 'b': kbwg = true; break;
+    case 'z': blanks = true; break;
     default: return false;
     }
   }
   if (!positionals(argc, argv, 2, "the word graph and the words to write")) return false;
+  if (blanks && graph == 1) {
+    fputs("--blanks reads a dawg: tile 0 is the gaddag's separator\n", stderr);
+    return false;
+  }
   if (!output_to(argv[optind + 1])) return false;
-  return kbwg ? do_lang_rkbwg(argv[optind], tileset, graph) : do_lang_rkwg(argv[optind], tileset, graph);
+  return kbwg ? do_lang_rkbwg(argv[optind], tileset, graph, blanks) : do_lang_rkwg(argv[optind], tileset, graph, blanks);
 }
 
 bool run_read_klv(int argc, char **argv, Tile tileset[static 1]) {
@@ -1614,8 +1620,9 @@ void usage(FILE *f) {
     "    --blanks: a word may hold ? (tile 0); the graph is then a dawg\n"
     "  klv [--klv 2] [--layout L] LEAVES OUT\n"
     "    generate a leave table from leave,value lines\n"
-    "  read-kwg [--graph dawg|gaddag] [--kbwg] KWG OUT\n"
+    "  read-kwg [--graph dawg|gaddag] [--kbwg] [--blanks] KWG OUT\n"
     "    read a word graph's words, on a little-endian system\n"
+    "    --blanks: the dawg may hold ? (tile 0), as kwg --blanks writes it\n"
     "  read-klv KLV OUT\n"
     "    read a leave table's leave,value lines, on a little-endian system\n"
     "\n"
