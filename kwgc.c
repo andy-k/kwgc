@@ -892,6 +892,36 @@ bool write_all(const char *path, const void *ptr, size_t len) {
   return ok;
 }
 
+// as Rust's str::from_utf8: no stray continuation byte, no overlong form, no
+// surrogate, nothing past U+10FFFF; buildlex reads every input as UTF-8 text
+static bool is_utf8(const uint8_t *s, size_t len) {
+  for (size_t i = 0; i < len; ) {
+    uint8_t c = s[i];
+    size_t n;
+    uint32_t min, cp;
+    if (c < 0x80) {
+      ++i;
+      continue;
+    } else if ((c & 0xe0) == 0xc0) {
+      n = 1; min = 0x80; cp = (uint32_t)(c & 0x1f);
+    } else if ((c & 0xf0) == 0xe0) {
+      n = 2; min = 0x800; cp = (uint32_t)(c & 0x0f);
+    } else if ((c & 0xf8) == 0xf0) {
+      n = 3; min = 0x10000; cp = (uint32_t)(c & 0x07);
+    } else {
+      return false;
+    }
+    if (len - i <= n) return false;
+    for (size_t k = 1; k <= n; ++k) {
+      if ((s[i + k] & 0xc0) != 0x80) return false;
+      cp = (cp << 6) | (uint32_t)(s[i + k] & 0x3f);
+    }
+    if (cp < min || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return false;
+    i += n + 1;
+  }
+  return true;
+}
+
 bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, bool alphagrams, bool is_gaddag, bool is_kbwg) {
   bool errored = false;
   bool defer_free_file_content = false;
@@ -899,6 +929,7 @@ bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *)
   bool defer_free_ret = false;
   size_t file_size;
   uint8_t *file_content = read_all(in, &file_size, 1); if (!file_content) goto errored; defer_free_file_content = true;
+  if (!is_utf8(file_content, file_size)) { fprintf(stderr, "%s: not UTF-8\n", in); goto errored; }
   file_content[file_size++] = '\n'; // sentinel
   OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
   Wordlist wl = wordlist_new(); defer_free_wl = true;
@@ -908,7 +939,10 @@ bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *)
       vecByte_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
       ++cur_ofs_len.len;
-    } else if (file_content[i] <= ' ') {
+    } else if (file_content[i] <= ' ' && (cur_ofs_len.len > 0 || file_content[i] == '\n' || (file_content[i] == '\r' && i + 2 < file_size && file_content[i + 1] == '\n'))) {
+      // a word ends at its first blank; a line may be empty (\r\n too, but
+      // not a \r the file ends with) but may not start with a blank, as
+      // buildlex reads a word list
       while (file_content[i] != '\n') ++i;
       ++i; // skip the newline
       if (cur_ofs_len.len > 0) {
@@ -965,63 +999,142 @@ bool parse_leave_value(const char *s, float *val) {
   return true;
 }
 
+// a record of a csv as the csv crate reads one by default, which is how
+// buildlex reads a leave file: fields split at ',', a field that starts with
+// '"' quoted until the next lone '"' ("" is a '"') and anything after that
+// quote still the field's; '\r', '\n' or "\r\n" ends a record, a record never
+// starts at one (so blank lines are skipped), and an open quote runs to the
+// end. Each field lands in buf unquoted with a '\0' after it, from starts[k].
+typedef struct {
+  uint8_t *buf;
+  size_t len, cap;
+  size_t *starts;
+  size_t num_fields, cap_fields;
+} CsvRecord;
+
+static void csv_push(CsvRecord *r, uint8_t b) {
+  if (r->len == r->cap) {
+    r->cap = r->cap ? r->cap * 2 : 256;
+    r->buf = realloc_or_die(r->buf, r->cap);
+  }
+  r->buf[r->len++] = b;
+}
+
+static bool csv_next_record(const uint8_t *s, size_t len, size_t pos[static 1], CsvRecord *r) {
+  size_t i = *pos;
+  while (i < len && (s[i] == '\r' || s[i] == '\n')) ++i;
+  if (i == len) {
+    *pos = i;
+    return false;
+  }
+  r->len = 0;
+  r->num_fields = 0;
+  while (true) {
+    if (r->num_fields == r->cap_fields) {
+      r->cap_fields = r->cap_fields ? r->cap_fields * 2 : 8;
+      r->starts = realloc_or_die(r->starts, r->cap_fields * sizeof(size_t));
+    }
+    r->starts[r->num_fields++] = r->len;
+    if (i < len && s[i] == '"') {
+      for (++i; i < len; ++i) {
+        if (s[i] != '"') {
+          csv_push(r, s[i]);
+        } else if (i + 1 < len && s[i + 1] == '"') {
+          csv_push(r, '"');
+          ++i;
+        } else {
+          ++i;
+          break;
+        }
+      }
+    }
+    while (i < len && s[i] != ',' && s[i] != '\r' && s[i] != '\n') csv_push(r, s[i++]);
+    csv_push(r, '\0');
+    if (i < len && s[i] == ',') {
+      ++i;
+      continue;
+    }
+    break; // at a '\r', a '\n' or the end: the next record skips them
+  }
+  *pos = i;
+  return true;
+}
+
+// leave,value records, as buildlex reads a leave file: UTF-8, a leading BOM
+// dropped, every record as many fields as the first and at least two, the
+// leave in the first (every byte a tile, ? included) and its value in the
+// second; a leave of no tiles, or one listed twice, is refused
 bool do_klv(const char *in, const char *out_path, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout) {
   bool errored = false;
   bool defer_free_file_content = false;
+  bool defer_free_record = false;
   bool defer_free_wl = false;
   bool defer_free_ret = false;
   bool defer_free_out = false;
   size_t file_size;
-  uint8_t *file_content = read_all(in, &file_size, 1); if (!file_content) goto errored; defer_free_file_content = true;
-  file_content[file_size++] = '\n'; // sentinel
-  OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
+  uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
+  if (!is_utf8(file_content, file_size)) { fprintf(stderr, "%s: not UTF-8\n", in); goto errored; }
+  CsvRecord record = { .buf = NULL, .len = 0, .cap = 0, .starts = NULL, .num_fields = 0, .cap_fields = 0 }; defer_free_record = true;
   Wordlist wl = wordlist_new(); defer_free_wl = true;
   bool this_is_big_endian = is_big_endian();
-  for (size_t i = 0; i < file_size; ) {
-    ParsedTile parsed_tile = tileset_parse(file_content + i);
-    if (parsed_tile.len) { // allow blank
+  size_t pos = file_size >= 3 && !memcmp(file_content, "\xef\xbb\xbf", 3) ? 3 : 0;
+  size_t num_fields = 0;
+  for (size_t record_no = 1; csv_next_record(file_content, file_size, &pos, &record); ++record_no) {
+    if (record_no == 1) num_fields = record.num_fields;
+    if (record.num_fields != num_fields) {
+      fprintf(stderr, "record %zu has %zu fields, the first had %zu\n", record_no, record.num_fields, num_fields);
+      goto errored;
+    }
+    if (record.num_fields < 2) {
+      fprintf(stderr, "record %zu is not a leave and a value\n", record_no);
+      goto errored;
+    }
+    uint8_t *leave = record.buf + record.starts[0];
+    size_t leave_len = record.starts[1] - record.starts[0] - 1;
+    char *value = (char *)(record.buf + record.starts[1]);
+    size_t value_len = (record.num_fields > 2 ? record.starts[2] : record.len) - record.starts[1] - 1;
+    if (!leave_len) {
+      fprintf(stderr, "record %zu has a leave of no tiles\n", record_no);
+      goto errored;
+    }
+    OfsLen cur_ofs_len = { .ofs = (uint32_t)wl.tiles_bytes.len, .len = 0 }; // assume no overflow.
+    for (size_t i = 0; i < leave_len; ) {
+      ParsedTile parsed_tile = tileset_parse(leave + i);
+      if (!parsed_tile.len) {
+        fprintf(stderr, "record %zu: bad tile at offset %zu of its leave\n", record_no, i);
+        goto errored;
+      }
       vecByte_push(&wl.tiles_bytes, &parsed_tile.index);
       i += parsed_tile.len;
       ++cur_ofs_len.len;
-    } else if (file_content[i] == ',') {
-      size_t orig_i = i;
-      while (file_content[i] != '\n') ++i;
-      file_content[i] = '\0'; // end the value at its line
-      if (file_content[i - 1] == '\r') file_content[i - 1] = '\0'; // a \r\n line
-      float val;
-      if (!parse_leave_value((char *)(file_content + orig_i + 1), &val)) {
-        fprintf(stderr, "bad value at offset %zu\n", orig_i + 1);
-        goto errored;
-      }
-      ++i; // skip the newline
-      if (cur_ofs_len.len > 0) {
-        qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
-        if (this_is_big_endian) {
-          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
-          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
-          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
-          vecByte_push(&wl.tiles_bytes, (uint8_t *)&val);
-        } else {
-          vecByte_push(&wl.tiles_bytes, (uint8_t *)&val);
-          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
-          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
-          vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
-        }
-        vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
-        cur_ofs_len.ofs += cur_ofs_len.len + 4; // sizeof(float)
-        cur_ofs_len.len = 0;
-      }
-    } else if (file_content[i] <= ' ' && !cur_ofs_len.len) {
-      while (file_content[i] != '\n') ++i;
-      ++i; // skip the newline
-    } else {
-      fprintf(stderr, "bad tile at offset %zu\n", i);
+    }
+    float val;
+    if (memchr(value, '\0', value_len) || !parse_leave_value(value, &val)) {
+      fprintf(stderr, "record %zu: bad value\n", record_no);
       goto errored;
     }
+    qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
+    if (this_is_big_endian) {
+      vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
+      vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
+      vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
+      vecByte_push(&wl.tiles_bytes, (uint8_t *)&val);
+    } else {
+      vecByte_push(&wl.tiles_bytes, (uint8_t *)&val);
+      vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 1);
+      vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
+      vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
+    }
+    vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
   }
   defer_free_file_content = false; free(file_content);
   wordlist_sort(&wl);
-  wordlist_dedup(&wl);
+  for (size_t r = 1; r < wl.tiles_slices.len; ++r) {
+    if (eql_tiles_slices(&wl.tiles_slices.ptr[r], &wl.tiles_slices.ptr[r - 1])) {
+      fputs("a leave is listed twice\n", stderr);
+      goto errored;
+    }
+  }
   VecU32 ret = vecU32_new(); defer_free_ret = true;
   xwgc_build(&ret, &wl, false, build_layout, kwgc_write_node, 0x400000);
   if (!ret.len) goto errored;
@@ -1053,6 +1166,7 @@ cleanup:
   if (defer_free_out) free(out);
   if (defer_free_ret) vecU32_free(&ret);
   if (defer_free_wl) wordlist_free(&wl);
+  if (defer_free_record) { free(record.buf); free(record.starts); }
   if (defer_free_file_content) free(file_content);
   return !errored;
 }
@@ -1157,36 +1271,6 @@ bool tiles_by_name(const char *name, Tile **tileset, ParsedTile (**tileset_parse
     }
   }
   return false;
-}
-
-// as Rust's str::from_utf8: no stray continuation byte, no overlong form, no
-// surrogate, nothing past U+10FFFF
-static bool is_utf8(const uint8_t *s, size_t len) {
-  for (size_t i = 0; i < len; ) {
-    uint8_t c = s[i];
-    size_t n;
-    uint32_t min, cp;
-    if (c < 0x80) {
-      ++i;
-      continue;
-    } else if ((c & 0xe0) == 0xc0) {
-      n = 1; min = 0x80; cp = (uint32_t)(c & 0x1f);
-    } else if ((c & 0xf0) == 0xe0) {
-      n = 2; min = 0x800; cp = (uint32_t)(c & 0x0f);
-    } else if ((c & 0xf8) == 0xf0) {
-      n = 3; min = 0x10000; cp = (uint32_t)(c & 0x07);
-    } else {
-      return false;
-    }
-    if (len - i <= n) return false;
-    for (size_t k = 1; k <= n; ++k) {
-      if ((s[i + k] & 0xc0) != 0x80) return false;
-      cp = (cp << 6) | (uint32_t)(s[i + k] & 0x3f);
-    }
-    if (cp < min || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return false;
-    i += n + 1;
-  }
-  return true;
 }
 
 // the length of the whitespace character at p, as Rust's char::is_whitespace
