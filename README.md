@@ -21,4 +21,4 @@ Bugs included.
 
 ## Usage
 
-`make`, then `./kwgc` to get usage instructions.
+`make`, then `./kwgc --help` to get usage instructions.
