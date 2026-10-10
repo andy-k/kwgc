@@ -25,19 +25,12 @@ void XWG_DUMP(XWG_NODE_T *nodes, VecChar *word, uint32_t p, Tile tileset[static 
   word->len = orig_len;
 }
 
-bool XWG_DO_LANG(char **argv, Tile tileset[static 1], ptrdiff_t root) {
-  // assume argc >= 3.
+bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root) {
   bool errored = false;
-  bool defer_fclose = false;
   bool defer_free_file_content = false;
   bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
+  size_t file_size;
+  uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
   VecChar word = vecChar_new(); defer_free_word = true;
@@ -47,7 +40,6 @@ errored: errored = true;
 cleanup:
   if (defer_free_word) vecChar_free(&word);
   if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
   return !errored;
 }
 

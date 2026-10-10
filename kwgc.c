@@ -1,7 +1,9 @@
 // Copyright (C) 2020-2026 Andy Kurnia.
 
 #include <arpa/inet.h>
+#include <getopt.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -858,21 +860,45 @@ static inline void kbwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index,
 
 // commands
 
-bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, int mode, bool is_kbwg) {
-  // assume argc >= 4. mode in [0 (dawgonly), 1 (gaddawg), 2 (alpha)].
+// the whole of a file, or of stdin for "-", with room for extra more bytes
+uint8_t *read_all(const char *path, size_t len[static 1], size_t extra) {
+  bool is_stdin = !strcmp(path, "-");
+  FILE *f = is_stdin ? stdin : fopen(path, "rb");
+  if (!f) { perror(path); return NULL; }
+  size_t cap = (size_t)1 << 16, n = 0;
+  uint8_t *buf = malloc_or_die(cap + extra);
+  while (true) {
+    n += fread(buf + n, 1, cap - n, f);
+    if (n < cap) break;
+    cap *= 2;
+    buf = realloc_or_die(buf, cap + extra);
+  }
+  bool bad = ferror(f);
+  if (!is_stdin && fclose(f)) bad = true;
+  if (bad) { perror(path); free(buf); return NULL; }
+  *len = n;
+  return buf;
+}
+
+// to a file, or to stdout for "-"
+bool write_all(const char *path, const void *ptr, size_t len) {
+  bool is_stdout = !strcmp(path, "-");
+  FILE *f = is_stdout ? stdout : fopen(path, "wb");
+  if (!f) { perror(path); return false; }
+  bool ok = fwrite(ptr, 1, len, f) == len;
+  if (is_stdout) ok = !fflush(f) && ok;
+  else if (fclose(f)) ok = false;
+  if (!ok) perror(path);
+  return ok;
+}
+
+bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout, bool alphagrams, bool is_gaddag, bool is_kbwg) {
   bool errored = false;
-  bool defer_fclose = false;
   bool defer_free_file_content = false;
   bool defer_free_wl = false;
   bool defer_free_ret = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size + 1); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
+  size_t file_size;
+  uint8_t *file_content = read_all(in, &file_size, 1); if (!file_content) goto errored; defer_free_file_content = true;
   file_content[file_size++] = '\n'; // sentinel
   OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
   Wordlist wl = wordlist_new(); defer_free_wl = true;
@@ -886,7 +912,7 @@ bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout b
       while (file_content[i] != '\n') ++i;
       ++i; // skip the newline
       if (cur_ofs_len.len > 0) {
-        if (mode == 2) qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
+        if (alphagrams) qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
         vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
         cur_ofs_len.ofs += cur_ofs_len.len;
         cur_ofs_len.len = 0;
@@ -900,18 +926,15 @@ bool do_lang_kwg(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout b
   wordlist_sort(&wl);
   wordlist_dedup(&wl);
   VecU32 ret = vecU32_new(); defer_free_ret = true;
-  xwgc_build(&ret, &wl, mode == 1, build_layout, is_kbwg ? kbwgc_write_node : kwgc_write_node, is_kbwg ? 0x1000000 : 0x400000);
+  xwgc_build(&ret, &wl, is_gaddag, build_layout, is_kbwg ? kbwgc_write_node : kwgc_write_node, is_kbwg ? 0x1000000 : 0x400000);
   if (!ret.len) goto errored;
-  f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fwrite(ret.ptr, sizeof(uint32_t), ret.len, f) != ret.len) { perror("fwrite"); goto errored; }
-  defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
+  if (!write_all(out, ret.ptr, ret.len * sizeof(uint32_t))) goto errored;
   goto cleanup;
 errored: errored = true;
 cleanup:
   if (defer_free_ret) vecU32_free(&ret);
   if (defer_free_wl) wordlist_free(&wl);
   if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
   return !errored;
 }
 
@@ -942,21 +965,14 @@ bool parse_leave_value(const char *s, float *val) {
   return true;
 }
 
-bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout) {
+bool do_klv(const char *in, const char *out_path, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout) {
   bool errored = false;
-  bool defer_fclose = false;
   bool defer_free_file_content = false;
   bool defer_free_wl = false;
   bool defer_free_ret = false;
   bool defer_free_out = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size + 1); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
-  defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
+  size_t file_size;
+  uint8_t *file_content = read_all(in, &file_size, 1); if (!file_content) goto errored; defer_free_file_content = true;
   file_content[file_size++] = '\n'; // sentinel
   OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
   Wordlist wl = wordlist_new(); defer_free_wl = true;
@@ -1030,9 +1046,7 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout 
     *pout++ = *p++;
     *pout++ = *p++;
   }
-  f = fopen(argv[3], "wb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fwrite(out, sizeof(uint32_t), out_len, f) != out_len) { perror("fwrite"); goto errored; }
-  defer_fclose = false; if (fclose(f)) { perror("fclose"); goto errored; }
+  if (!write_all(out_path, out, out_len * sizeof(uint32_t))) goto errored;
   goto cleanup;
 errored: errored = true;
 cleanup:
@@ -1040,7 +1054,6 @@ cleanup:
   if (defer_free_ret) vecU32_free(&ret);
   if (defer_free_wl) wordlist_free(&wl);
   if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
   return !errored;
 }
 
@@ -1088,19 +1101,12 @@ void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], 
   word->len = orig_len;
 }
 
-bool do_lang_rklv2(char **argv, Tile tileset[static 1]) {
-  // assume argc >= 3.
+bool do_read_klv(const char *in, Tile tileset[static 1]) {
   bool errored = false;
-  bool defer_fclose = false;
   bool defer_free_file_content = false;
   bool defer_free_word = false;
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("fopen"); goto errored; } defer_fclose = true;
-  if (fseek(f, 0L, SEEK_END)) { perror("fseek"); goto errored; }
-  off_t file_size_signed = ftello(f); if (file_size_signed < 0) { perror("ftello"); goto errored; }
-  size_t file_size = (size_t)file_size_signed;
-  uint8_t *file_content = malloc_or_die(file_size); defer_free_file_content = true;
-  rewind(f);
-  if (fread(file_content, 1, file_size, f) != file_size) { perror("fread"); goto errored; }
+  size_t file_size;
+  uint8_t *file_content = read_all(in, &file_size, 0); if (!file_content) goto errored; defer_free_file_content = true;
   if (is_big_endian()) swap_bytes_32(file_content, file_size);
   uint32_t num_kwg_nodes = *(uint32_t *)file_content;
   KwgNode *kwg = (KwgNode *)(file_content + sizeof(uint32_t));
@@ -1112,128 +1118,476 @@ errored: errored = true;
 cleanup:
   if (defer_free_word) vecChar_free(&word);
   if (defer_free_file_content) free(file_content);
-  if (defer_fclose) { if (fclose(f)) { perror("fclose"); errored = true; } }
   return !errored;
 }
 
-bool do_lang(int argc, char **argv, const char lang_name[static 1], ParsedTile tileset_parse(uint8_t *), Tile tileset[static 1]) {
-  size_t lang_name_len = strlen(lang_name);
-  if (!(argc > 1 && !strncmp(argv[1], lang_name, lang_name_len))) {
-    return false;
+// --tiles: an alphabet wolges bundles, by the name its buildlex takes, or an
+// alphabet file read as buildlex reads one (alphabet.rs new_static_from_text):
+// UTF-8 text, a tile a line -- label, blank label, count (0 to 255), score
+// (-32 to 32), vowel (0 or 1), the number of alias labels and those, the
+// number of alias blank labels and those; 1 to 64 tiles
+
+bool tiles_by_name(const char *name, Tile **tileset, ParsedTile (**tileset_parse)(uint8_t *)) {
+  const struct {
+    const char *name;
+    Tile *tileset;
+    ParsedTile (*tileset_parse)(uint8_t *);
+  } named[] = {
+    { "catalan", catalan_tileset, catalan_tileset_parse },
+    { "decimal", decimal_tileset, decimal_tileset_parse },
+    { "dutch", dutch_tileset, dutch_tileset_parse },
+    { "english", english_tileset, english_tileset_parse },
+    { "french", french_tileset, french_tileset_parse },
+    { "german", german_tileset, german_tileset_parse },
+    { "hex", hex_tileset, hex_tileset_parse },
+    { "hong-kong-english", hong_kong_english_tileset, hong_kong_english_tileset_parse },
+    { "norwegian", norwegian_tileset, norwegian_tileset_parse },
+    { "polish", polish_tileset, polish_tileset_parse },
+    { "slovene", slovene_tileset, slovene_tileset_parse },
+    { "spanish", spanish_tileset, spanish_tileset_parse },
+    { "super-catalan", super_catalan_tileset, super_catalan_tileset_parse },
+    { "super-english", super_english_tileset, super_english_tileset_parse },
+    { "swedish", swedish_tileset, swedish_tileset_parse },
+  };
+  for (size_t i = 0; i < sizeof(named) / sizeof(named[0]); ++i) {
+    if (!strcmp(name, named[i].name)) {
+      *tileset = named[i].tileset;
+      *tileset_parse = named[i].tileset_parse;
+      return true;
+    }
   }
-  BuildLayout build_layout;
-  if (false) {
-  } else if (!strncmp(argv[1] + lang_name_len, "-magpiemerged", strlen("-magpiemerged"))) {
-    lang_name_len += strlen("-magpiemerged");
-    build_layout = BuildLayout_MagpieMerged;
-  } else if (!strncmp(argv[1] + lang_name_len, "-magpie", strlen("-magpie"))) {
-    lang_name_len += strlen("-magpie");
-    build_layout = BuildLayout_Magpie;
-  } else if (!strncmp(argv[1] + lang_name_len, "-legacy", strlen("-legacy"))) {
-    lang_name_len += strlen("-legacy");
-    build_layout = BuildLayout_Legacy;
-  } else if (!strncmp(argv[1] + lang_name_len, "-experimental", strlen("-experimental"))) {
-    lang_name_len += strlen("-experimental");
-    build_layout = BuildLayout_Experimental;
-  } else {
-    build_layout = BuildLayout_Wolges;
-  }
-  if (false) {
-  } else if (!strcmp(argv[1] + lang_name_len, "-klv2")) {
-    if (argc < 4) goto needs_more_args;
-    return do_lang_klv2(argv, tileset_parse, build_layout);
-  } else if (!strcmp(argv[1] + lang_name_len, "-kwg")) {
-    if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 1, false);
-  } else if (!strcmp(argv[1] + lang_name_len, "-kbwg")) {
-    if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 1, true);
-  } else if (!strcmp(argv[1] + lang_name_len, "-kwg-alpha")) {
-    if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 2, false);
-  } else if (!strcmp(argv[1] + lang_name_len, "-kwg-dawg")) {
-    if (argc < 4) goto needs_more_args;
-    return do_lang_kwg(argv, tileset_parse, build_layout, 0, false);
-  } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg")) {
-    if (argc < 3) goto needs_more_args;
-    time_goes_to_stderr = true;
-    return do_lang_rkwg(argv, tileset, 0);
-  } else if (!strcmp(argv[1] + lang_name_len, "-read-kwg-gaddag")) {
-    if (argc < 3) goto needs_more_args;
-    time_goes_to_stderr = true;
-    return do_lang_rkwg(argv, tileset, 1);
-  } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg")) {
-    if (argc < 3) goto needs_more_args;
-    time_goes_to_stderr = true;
-    return do_lang_rkbwg(argv, tileset, 0);
-  } else if (!strcmp(argv[1] + lang_name_len, "-read-kbwg-gaddag")) {
-    if (argc < 3) goto needs_more_args;
-    time_goes_to_stderr = true;
-    return do_lang_rkbwg(argv, tileset, 1);
-  } else if (!strcmp(argv[1] + lang_name_len, "-read-klv2")) {
-    if (argc < 3) goto needs_more_args;
-    time_goes_to_stderr = true;
-    return do_lang_rklv2(argv, tileset);
-  } else {
-    return false;
+  return false;
+}
+
+// as Rust's str::from_utf8: no stray continuation byte, no overlong form, no
+// surrogate, nothing past U+10FFFF
+static bool is_utf8(const uint8_t *s, size_t len) {
+  for (size_t i = 0; i < len; ) {
+    uint8_t c = s[i];
+    size_t n;
+    uint32_t min, cp;
+    if (c < 0x80) {
+      ++i;
+      continue;
+    } else if ((c & 0xe0) == 0xc0) {
+      n = 1; min = 0x80; cp = (uint32_t)(c & 0x1f);
+    } else if ((c & 0xf0) == 0xe0) {
+      n = 2; min = 0x800; cp = (uint32_t)(c & 0x0f);
+    } else if ((c & 0xf8) == 0xf0) {
+      n = 3; min = 0x10000; cp = (uint32_t)(c & 0x07);
+    } else {
+      return false;
+    }
+    if (len - i <= n) return false;
+    for (size_t k = 1; k <= n; ++k) {
+      if ((s[i + k] & 0xc0) != 0x80) return false;
+      cp = (cp << 6) | (uint32_t)(s[i + k] & 0x3f);
+    }
+    if (cp < min || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return false;
+    i += n + 1;
   }
   return true;
-needs_more_args:
-  fprintf(stderr, "%s needs more arguments\n", argv[1]);
+}
+
+// the length of the whitespace character at p, as Rust's char::is_whitespace
+// takes it (U+0009 to U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000 to
+// U+200A, U+2028, U+2029, U+202F, U+205F, U+3000), else 0; p is in UTF-8 text
+static size_t ws_len(const uint8_t *p) {
+  if ((p[0] >= 0x09 && p[0] <= 0x0d) || p[0] == 0x20) return 1;
+  if (p[0] == 0xc2 && (p[1] == 0x85 || p[1] == 0xa0)) return 2;
+  if (p[0] == 0xe1 && p[1] == 0x9a && p[2] == 0x80) return 3;
+  if (p[0] == 0xe2 && p[1] == 0x80 && ((p[2] >= 0x80 && p[2] <= 0x8a) || p[2] == 0xa8 || p[2] == 0xa9 || p[2] == 0xaf)) return 3;
+  if (p[0] == 0xe2 && p[1] == 0x81 && p[2] == 0x9f) return 3;
+  if (p[0] == 0xe3 && p[1] == 0x80 && p[2] == 0x80) return 3;
+  return 0;
+}
+
+// the next token of the line [*p, end), past whitespace
+static bool next_token(const uint8_t **p, const uint8_t *end, const uint8_t **tok, size_t len[static 1]) {
+  size_t w;
+  while (*p < end && (w = ws_len(*p))) *p += w;
+  if (*p == end) return false;
+  *tok = *p;
+  while (*p < end && !ws_len(*p)) ++*p;
+  *len = (size_t)(*p - *tok);
   return true;
+}
+
+// a token as Rust's from_str reads an integer: an optional '+' (or '-' when
+// signed) and decimal digits, nothing else; then within [lo, hi]
+static bool token_int(const uint8_t *tok, size_t len, bool is_signed, long long lo, long long hi, long long v[static 1]) {
+  size_t i = 0;
+  bool neg = false;
+  if (i < len && (tok[i] == '+' || (is_signed && tok[i] == '-'))) neg = tok[i++] == '-';
+  if (i == len) return false;
+  long long x = 0;
+  for (; i < len; ++i) {
+    if (tok[i] < '0' || tok[i] > '9') return false;
+    if (x > (LLONG_MAX - 9) / 10) return false;
+    x = x * 10 + (tok[i] - '0');
+  }
+  if (neg) x = -x;
+  if (x < lo || x > hi) return false;
+  *v = x;
+  return true;
+}
+
+typedef struct {
+  const uint8_t *bytes;
+  size_t len;
+  uint8_t index;
+} FileLabel;
+
+typedef struct {
+  FileLabel *labels;
+  size_t num_labels, cap_labels;
+  size_t start[257]; // labels by first byte: [start[b], start[b + 1])
+} FileReader;
+
+// as buildlex's readers: a word takes every tile but 0 by its labels, its
+// blank labels and their aliases; a leave also takes tile 0 by its label and
+// that label's aliases (alphabet.rs new_for_words, new_for_racks)
+FileReader file_words, file_racks; // global: a tileset's parse takes only the text
+
+static void file_reader_push(FileReader *r, const char *label, size_t index) {
+  if (r->num_labels == r->cap_labels) {
+    r->cap_labels = r->cap_labels ? r->cap_labels * 2 : 128;
+    r->labels = realloc_or_die(r->labels, r->cap_labels * sizeof(FileLabel));
+  }
+  r->labels[r->num_labels++] = (FileLabel){ .bytes = (const uint8_t *)label, .len = strlen(label), .index = (uint8_t)index };
+}
+
+// by first byte, then the longer first, then the lower tile (alphabet.rs
+// new_for_tiles), so the first label that matches is the greedy match
+static int qc_file_labels(const void *a, const void *b) {
+  const FileLabel *la = a, *lb = b;
+  if (la->bytes[0] != lb->bytes[0]) return la->bytes[0] < lb->bytes[0] ? -1 : 1;
+  if (la->len != lb->len) return la->len > lb->len ? -1 : 1;
+  return (la->index > lb->index) - (la->index < lb->index);
+}
+
+static void file_reader_index(FileReader *r) {
+  qsort(r->labels, r->num_labels, sizeof(FileLabel), qc_file_labels);
+  size_t i = 0;
+  for (size_t b = 0; b < 256; ++b) {
+    r->start[b] = i;
+    while (i < r->num_labels && (size_t)r->labels[i].bytes[0] == b) ++i;
+  }
+  r->start[256] = i;
+}
+
+// a label holds no whitespace, so the text's line end stops every compare
+static ParsedTile file_parse(const FileReader *r, const uint8_t *ptr) {
+  for (size_t i = r->start[*ptr]; i < r->start[*ptr + 1]; ++i) {
+    const FileLabel *l = &r->labels[i];
+    size_t n = 0;
+    while (n < l->len && ptr[n] == l->bytes[n]) ++n;
+    if (n == l->len) return (ParsedTile){ .len = n, .index = l->index };
+  }
+  return (ParsedTile){ .len = 0, .index = 0 };
+}
+
+ParsedTile file_words_parse(uint8_t *ptr) { return file_parse(&file_words, ptr); }
+ParsedTile file_racks_parse(uint8_t *ptr) { return file_parse(&file_racks, ptr); }
+
+typedef enum { Label_Main, Label_Alias, Label_Blank, Label_BlankAlias } LabelKind;
+
+typedef struct {
+  char *s;
+  size_t tile;
+  LabelKind kind;
+} FileEntry;
+
+bool tiles_from_file(const char *path, Tile **tileset) {
+  size_t len;
+  uint8_t *text = read_all(path, &len, 0);
+  if (!text) {
+    fprintf(stderr, "\"%s\" is not bundled tiles or a readable file\n", path);
+    return false;
+  }
+  if (!is_utf8(text, len)) {
+    fprintf(stderr, "\"%s\" is not bundled tiles or a readable file: not UTF-8\n", path);
+    return false;
+  }
+  FileEntry *entries = NULL;
+  size_t num_entries = 0, cap_entries = 0, num_tiles = 0, line_no = 0;
+  const char *why = NULL;
+  const uint8_t *end_of_text = text + len;
+  // lines as Rust's str::lines: split at '\n', and a final '\n' ends the last
+  // line rather than starting an empty one; a '\r' is whitespace to a token
+  for (const uint8_t *line = text; line < end_of_text; ) {
+    const uint8_t *eol = memchr(line, '\n', (size_t)(end_of_text - line));
+    if (!eol) eol = end_of_text;
+    ++line_no;
+    const uint8_t *p = line;
+    // each token in turn: the labels, then the five numbers between them
+    long long freq, score, vowel, count[2];
+    for (int field = 0; field < 7 && !why; ++field) {
+      const uint8_t *tok;
+      size_t tok_len;
+      if (!next_token(&p, eol, &tok, &tok_len)) { why = "not enough tokens"; break; }
+      switch (field) {
+      case 0: case 1:
+        if (memchr(tok, '\0', tok_len)) { why = "a label holds a nul byte"; break; }
+        if (num_entries == cap_entries) {
+          cap_entries = cap_entries ? cap_entries * 2 : 256;
+          entries = realloc_or_die(entries, cap_entries * sizeof(FileEntry));
+        }
+        entries[num_entries] = (FileEntry){ .s = malloc_or_die(tok_len + 1), .tile = num_tiles, .kind = field ? Label_Blank : Label_Main };
+        memcpy(entries[num_entries].s, tok, tok_len);
+        entries[num_entries++].s[tok_len] = '\0';
+        break;
+      case 2:
+        if (!token_int(tok, tok_len, false, 0, 255, &freq)) why = "a count is a number from 0 to 255";
+        break;
+      case 3:
+        if (!token_int(tok, tok_len, true, -128, 127, &score)) why = "a score is a number from -128 to 127";
+        else if (score < -32 || score > 32) why = "a tile scores from -32 to 32";
+        break;
+      case 4:
+        if (!token_int(tok, tok_len, false, 0, 255, &vowel)) why = "a vowel flag is a number from 0 to 255";
+        else if (vowel > 1) why = "invalid bool";
+        break;
+      case 5: case 6:
+        if (!token_int(tok, tok_len, false, 0, LLONG_MAX, &count[field - 5])) { why = "an alias count is a number"; break; }
+        for (long long a = 0; a < count[field - 5]; ++a) {
+          if (!next_token(&p, eol, &tok, &tok_len)) { why = "not enough tokens"; break; }
+          if (memchr(tok, '\0', tok_len)) { why = "a label holds a nul byte"; break; }
+          if (num_entries == cap_entries) {
+            cap_entries = cap_entries ? cap_entries * 2 : 256;
+            entries = realloc_or_die(entries, cap_entries * sizeof(FileEntry));
+          }
+          entries[num_entries] = (FileEntry){ .s = malloc_or_die(tok_len + 1), .tile = num_tiles, .kind = field == 5 ? Label_Alias : Label_BlankAlias };
+          memcpy(entries[num_entries].s, tok, tok_len);
+          entries[num_entries++].s[tok_len] = '\0';
+        }
+        break;
+      }
+    }
+    if (why) break;
+    const uint8_t *extra;
+    size_t extra_len;
+    if (next_token(&p, eol, &extra, &extra_len)) { why = "too many tokens"; break; }
+    ++num_tiles;
+    line = eol < end_of_text ? eol + 1 : eol;
+  }
+  if (why) {
+    fprintf(stderr, "%s: line %zu: %s\n", path, line_no, why);
+    return false;
+  }
+  if (num_tiles < 1 || num_tiles > 64) {
+    fprintf(stderr, "%s: an alphabet has from 1 to 64 tiles\n", path);
+    return false;
+  }
+  Tile *out = malloc_or_die(num_tiles * sizeof(Tile));
+  for (size_t i = 0; i < num_entries; ++i) {
+    FileEntry *e = &entries[i];
+    if (e->kind == Label_Main) out[e->tile].label = e->s;
+    if (e->kind == Label_Blank) out[e->tile].blank_label = e->s;
+    if (e->tile > 0 || e->kind == Label_Main || e->kind == Label_Alias) file_reader_push(&file_racks, e->s, e->tile);
+    if (e->tile > 0) file_reader_push(&file_words, e->s, e->tile);
+  }
+  file_reader_index(&file_words);
+  file_reader_index(&file_racks);
+  *tileset = out;
+  return true;
+}
+
+// getopt_long from the start of another argv
+static void reset_getopt(void) {
+#ifdef __GLIBC__
+  optind = 0;
+#else
+  optreset = 1;
+  optind = 1;
+#endif
+}
+
+static bool pick(const char *opt, const char *val, const char *const names[], int num_names, int index[static 1]) {
+  for (int i = 0; i < num_names; ++i) {
+    if (!strcmp(val, names[i])) {
+      *index = i;
+      return true;
+    }
+  }
+  fprintf(stderr, "--%s cannot be \"%s\"\n", opt, val);
+  return false;
+}
+
+static const char *const layout_names[] = { "wolges", "magpie", "magpiemerged", "legacy", "experimental" };
+static const BuildLayout layouts[] = { BuildLayout_Wolges, BuildLayout_Magpie, BuildLayout_MagpieMerged, BuildLayout_Legacy, BuildLayout_Experimental };
+
+static bool positionals(int argc, char **argv, int want, const char *what) {
+  if (argc - optind == want) return true;
+  fprintf(stderr, "%s takes %s\n", argv[0], what);
+  return false;
+}
+
+bool run_kwg(int argc, char **argv, ParsedTile tileset_parse(uint8_t *)) {
+  static const struct option opts[] = {
+    { "graph", required_argument, NULL, 'g' },
+    { "words", required_argument, NULL, 'w' },
+    { "layout", required_argument, NULL, 'l' },
+    { "kbwg", no_argument, NULL, 'b' },
+    { NULL, 0, NULL, 0 },
+  };
+  int graph = -1, words = 0, layout = 0;
+  bool kbwg = false;
+  for (int c; (c = getopt_long(argc, argv, "", opts, NULL)) != -1; ) {
+    switch (c) {
+    case 'g': if (!pick("graph", optarg, (const char *const[]){ "gaddawg", "dawg" }, 2, &graph)) return false; break;
+    case 'w': if (!pick("words", optarg, (const char *const[]){ "plain", "alphagrams" }, 2, &words)) return false; break;
+    case 'l': if (!pick("layout", optarg, layout_names, 5, &layout)) return false; break;
+    case 'b': kbwg = true; break;
+    default: return false;
+    }
+  }
+  if (!positionals(argc, argv, 2, "the words, one a line, and the word graph to write")) return false;
+  bool alphagrams = words == 1;
+  // gaddawg, or a dawg for alphagrams, unless --graph says
+  bool is_gaddag = graph == -1 ? !alphagrams : graph == 0;
+  if (!strcmp(argv[optind + 1], "-")) time_goes_to_stderr = true;
+  return do_kwg(argv[optind], argv[optind + 1], tileset_parse, layouts[layout], alphagrams, is_gaddag, kbwg);
+}
+
+bool run_klv(int argc, char **argv, ParsedTile tileset_parse(uint8_t *)) {
+  static const struct option opts[] = {
+    { "klv", required_argument, NULL, 'k' },
+    { "layout", required_argument, NULL, 'l' },
+    { NULL, 0, NULL, 0 },
+  };
+  int klv = 0, layout = 0;
+  for (int c; (c = getopt_long(argc, argv, "", opts, NULL)) != -1; ) {
+    switch (c) {
+    case 'k': if (!pick("klv", optarg, (const char *const[]){ "2" }, 1, &klv)) return false; break;
+    case 'l': if (!pick("layout", optarg, layout_names, 5, &layout)) return false; break;
+    default: return false;
+    }
+  }
+  if (!positionals(argc, argv, 2, "the leaves and their values, leave,value a line, and the leave table to write")) return false;
+  if (!strcmp(argv[optind + 1], "-")) time_goes_to_stderr = true;
+  return do_klv(argv[optind], argv[optind + 1], tileset_parse, layouts[layout]);
+}
+
+// the reader's output: stdout, or the file stdout becomes
+static bool output_to(const char *out) {
+  time_goes_to_stderr = true;
+  if (!strcmp(out, "-")) return true;
+  if (freopen(out, "w", stdout)) return true;
+  perror(out);
+  return false;
+}
+
+bool run_read_kwg(int argc, char **argv, Tile tileset[static 1]) {
+  static const struct option opts[] = {
+    { "graph", required_argument, NULL, 'g' },
+    { "kbwg", no_argument, NULL, 'b' },
+    { NULL, 0, NULL, 0 },
+  };
+  int graph = 0;
+  bool kbwg = false;
+  for (int c; (c = getopt_long(argc, argv, "", opts, NULL)) != -1; ) {
+    switch (c) {
+    case 'g': if (!pick("graph", optarg, (const char *const[]){ "dawg", "gaddag" }, 2, &graph)) return false; break;
+    case 'b': kbwg = true; break;
+    default: return false;
+    }
+  }
+  if (!positionals(argc, argv, 2, "the word graph and the words to write")) return false;
+  if (!output_to(argv[optind + 1])) return false;
+  return kbwg ? do_lang_rkbwg(argv[optind], tileset, graph) : do_lang_rkwg(argv[optind], tileset, graph);
+}
+
+bool run_read_klv(int argc, char **argv, Tile tileset[static 1]) {
+  static const struct option opts[] = {
+    { NULL, 0, NULL, 0 },
+  };
+  if (getopt_long(argc, argv, "", opts, NULL) != -1) return false;
+  if (!positionals(argc, argv, 2, "the leave table and the leave,value lines to write")) return false;
+  if (!output_to(argv[optind + 1])) return false;
+  return do_read_klv(argv[optind], tileset);
+}
+
+void usage(FILE *f) {
+  fputs(
+    "usage: kwgc [--tiles NAME|FILE] <task> ...\n"
+    "build word graphs and leave tables\n"
+    "\n"
+    "  --tiles NAME|FILE  bundled tiles or an alphabet file [default: english]:\n"
+    "                     catalan, decimal, dutch, english, french, german, hex,\n"
+    "                     hong-kong-english, norwegian, polish, slovene, spanish,\n"
+    "                     super-catalan, super-english, swedish\n"
+    "\n"
+    "  kwg [--graph gaddawg|dawg] [--words plain|alphagrams] [--layout L] [--kbwg] WORDS OUT\n"
+    "    generate a word graph from a word list [default: gaddawg; dawg for --words alphagrams]\n"
+    "  klv [--klv 2] [--layout L] LEAVES OUT\n"
+    "    generate a leave table from leave,value lines\n"
+    "  read-kwg [--graph dawg|gaddag] [--kbwg] KWG OUT\n"
+    "    read a word graph's words, on a little-endian system\n"
+    "  read-klv KLV OUT\n"
+    "    read a leave table's leave,value lines, on a little-endian system\n"
+    "\n"
+    "  --layout: wolges (default), magpie, magpiemerged, legacy, experimental\n"
+    "  input/output files can be \"-\" (not advisable for binary files)\n",
+    f);
 }
 
 int main(int argc, char **argv) {
   struct timeval tv_start = now();
-  if (
-    do_lang(argc, argv, "english", english_tileset_parse, english_tileset) ||
-    do_lang(argc, argv, "catalan", catalan_tileset_parse, catalan_tileset) ||
-    do_lang(argc, argv, "dutch", dutch_tileset_parse, dutch_tileset) ||
-    do_lang(argc, argv, "french", french_tileset_parse, french_tileset) ||
-    do_lang(argc, argv, "german", german_tileset_parse, german_tileset) ||
-    do_lang(argc, argv, "norwegian", norwegian_tileset_parse, norwegian_tileset) ||
-    do_lang(argc, argv, "polish", polish_tileset_parse, polish_tileset) ||
-    do_lang(argc, argv, "slovene", slovene_tileset_parse, slovene_tileset) ||
-    do_lang(argc, argv, "spanish", spanish_tileset_parse, spanish_tileset) ||
-    do_lang(argc, argv, "swedish", swedish_tileset_parse, swedish_tileset) ||
-    do_lang(argc, argv, "decimal", decimal_tileset_parse, decimal_tileset) ||
-    do_lang(argc, argv, "hex", hex_tileset_parse, hex_tileset) ||
-    false // so newer tilesets can be added without git diff
-  ) {
-    struct timeval tv_end = now();
-    FILE *time_stream = time_goes_to_stderr ? stderr : stdout;
-    fputs("time taken: ", time_stream);
-    fprint_dur_us(time_stream, tv_end, tv_start);
-    fputs("s\n", time_stream);
-  } else {
-    puts(
-      "args:\n"
-      "  english-klv2 english.csv english.klv2\n"
-      "    generate klv2 file. the csv support is incomplete, no quoting allowed.\n"
-      "  english-kwg CSW21.txt CSW21.kwg\n"
-      "    generate kwg file containing gaddawg (supports 4M nodes)\n"
-      "  english-kbwg CSW24.txt CSW24.kbwg\n"
-      "    generate kbwg file containing gaddawg (big variant supports 16M nodes)\n"
-      "  english-kwg-alpha CSW21.txt CSW21.kad\n"
-      "    generate kad file containing alpha dawg\n"
-      "  english-kwg-dawg CSW21.txt outfile.dwg\n"
-      "    generate dawg-only file\n"
-      "  (english-... can also be english-magpie-... for bigger magpie-style kwg,\n"
-      "    english-magpiemerged-... for magpie ordering with wolges merging,\n"
-      "    english-experimental-... for experimental,\n"
-      "    english-legacy-... for legacy (which is the former default),\n"
-      "    this is applicable for kwg, kwg-anything, klv/klv2)\n"
-      "  english-read-kwg infile.kwg\n"
-      "    read kwg on a little-endian system (dawg part only)\n"
-      "  english-read-kbwg infile.kbwg\n"
-      "    read kbwg on a little-endian system (dawg part only)\n"
-      "  english-read-kwg-gaddag infile.kwg\n"
-      "    read gaddag part of kwg on a little-endian system\n"
-      "  english-read-kbwg-gaddag infile.kbwg\n"
-      "    read gaddag part of kbwg on a little-endian system\n"
-      "  english-read-klv2 infile.klv2\n"
-      "    read klv2 on a little-endian system\n"
-      "  (english can also be catalan, dutch, french, german, norwegian, polish,\n"
-      "    slovene, spanish, swedish, decimal, hex)");
+  static const struct option opts[] = {
+    { "tiles", required_argument, NULL, 't' },
+    { "help", no_argument, NULL, 'h' },
+    { NULL, 0, NULL, 0 },
+  };
+  const char *tiles = "english";
+  for (int c; (c = getopt_long(argc, argv, "+h", opts, NULL)) != -1; ) {
+    if (c == 't') {
+      tiles = optarg;
+    } else if (c == 'h') {
+      usage(stdout);
+      return 0;
+    } else {
+      usage(stderr);
+      return 2;
+    }
   }
+  if (optind >= argc) {
+    usage(stderr);
+    return 2;
+  }
+  Tile *tileset;
+  ParsedTile (*words_parse)(uint8_t *);
+  ParsedTile (*racks_parse)(uint8_t *);
+  if (tiles_by_name(tiles, &tileset, &words_parse)) {
+    racks_parse = words_parse;
+  } else {
+    if (!tiles_from_file(tiles, &tileset)) return 1;
+    words_parse = file_words_parse;
+    racks_parse = file_racks_parse;
+  }
+  const char *task = argv[optind];
+  int task_argc = argc - optind;
+  char **task_argv = argv + optind;
+  reset_getopt();
+  bool ok;
+  if (!strcmp(task, "kwg")) {
+    ok = run_kwg(task_argc, task_argv, words_parse);
+  } else if (!strcmp(task, "klv")) {
+    ok = run_klv(task_argc, task_argv, racks_parse);
+  } else if (!strcmp(task, "read-kwg")) {
+    ok = run_read_kwg(task_argc, task_argv, tileset);
+  } else if (!strcmp(task, "read-klv")) {
+    ok = run_read_klv(task_argc, task_argv, tileset);
+  } else {
+    fprintf(stderr, "no task \"%s\"\n", task);
+    usage(stderr);
+    return 2;
+  }
+  if (!ok) return 1;
+  struct timeval tv_end = now();
+  FILE *time_stream = time_goes_to_stderr ? stderr : stdout;
+  fputs("time taken: ", time_stream);
+  fprint_dur_us(time_stream, tv_end, tv_start);
+  fputs("s\n", time_stream);
+  return 0;
 }
