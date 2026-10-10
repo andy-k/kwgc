@@ -915,6 +915,33 @@ cleanup:
   return !errored;
 }
 
+// a leave's value as wolges's buildlex takes it: an optional sign, digits with
+// at most one point, an optional exponent, and nothing else (no hex, nan, inf
+// or space); then v * 1000, a float, from -2^31 up to but not 2^31, which a
+// load rounds into an i32.
+bool parse_leave_value(const char *s, float *val) {
+  const char *p = s;
+  bool digits = false;
+  if (*p == '+' || *p == '-') ++p;
+  while (*p >= '0' && *p <= '9') { ++p; digits = true; }
+  if (*p == '.') for (++p; *p >= '0' && *p <= '9'; ++p) digits = true;
+  if (!digits) return false;
+  if (*p == 'e' || *p == 'E') {
+    ++p;
+    if (*p == '+' || *p == '-') ++p;
+    if (!(*p >= '0' && *p <= '9')) return false;
+    while (*p >= '0' && *p <= '9') ++p;
+  }
+  if (*p) return false;
+  char *end;
+  float v = strtof(s, &end);
+  if (end != p) return false;
+  float milli = v * 1000.0f;
+  if (!(milli >= -2147483648.0f && milli < 2147483648.0f)) return false;
+  *val = v;
+  return true;
+}
+
 bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout build_layout) {
   bool errored = false;
   bool defer_fclose = false;
@@ -943,9 +970,10 @@ bool do_lang_klv2(char **argv, ParsedTile tileset_parse(uint8_t *), BuildLayout 
     } else if (file_content[i] == ',') {
       size_t orig_i = i;
       while (file_content[i] != '\n') ++i;
-      file_content[i] = '\0'; // prevent sscanf from crashing
+      file_content[i] = '\0'; // end the value at its line
+      if (file_content[i - 1] == '\r') file_content[i - 1] = '\0'; // a \r\n line
       float val;
-      if (sscanf((char *)(file_content + orig_i + 1), "%f", &val) != 1) {
+      if (!parse_leave_value((char *)(file_content + orig_i + 1), &val)) {
         fprintf(stderr, "bad value at offset %zu\n", orig_i + 1);
         goto errored;
       }
