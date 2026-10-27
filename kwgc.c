@@ -1576,6 +1576,7 @@ bool tiles_by_name(const char *name, Tile **tileset, ParsedTile (**tileset_parse
     { "spanish", spanish_tileset, spanish_tileset_parse },
     { "super-catalan", super_catalan_tileset, super_catalan_tileset_parse },
     { "super-english", super_english_tileset, super_english_tileset_parse },
+    { "super-german", super_german_tileset, super_german_tileset_parse },
     { "swedish", swedish_tileset, swedish_tileset_parse },
   };
   for (size_t i = 0; i < sizeof(named) / sizeof(named[0]); ++i) {
@@ -1934,7 +1935,7 @@ void usage(FILE *f) {
     "  --tiles NAME|FILE  bundled tiles or an alphabet file [default: english]:\n"
     "                     catalan, decimal, dutch, english, french, german, hex,\n"
     "                     hong-kong-english, norwegian, polish, slovene, spanish,\n"
-    "                     super-catalan, super-english, swedish\n"
+    "                     super-catalan, super-english, super-german, swedish\n"
     "\n"
     "  kwg [--graph gaddawg|dawg] [--words plain|alphagrams] [--layout L] [--reordered] [--kbwg] [--blanks] WORDS OUT\n"
     "    generate a word graph from a word list [default: gaddawg; dawg for --words alphagrams or --blanks]\n"
