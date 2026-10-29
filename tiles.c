@@ -655,6 +655,9 @@ ParsedTile swedish_tileset_parse(uint8_t *ptr) {
 Tile *super_catalan_tileset = catalan_tileset;
 ParsedTile (*super_catalan_tileset_parse)(uint8_t *ptr) = catalan_tileset_parse;
 
+Tile *super_german_tileset = german_tileset;
+ParsedTile (*super_german_tileset_parse)(uint8_t *ptr) = german_tileset_parse;
+
 Tile *english_tileset = dutch_tileset;
 ParsedTile (*english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
