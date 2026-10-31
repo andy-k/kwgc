@@ -172,6 +172,7 @@ for lang, mapping in mappings
     puts "  { .label = #{k[0].inspect}, .blank_label = #{k[1].inspect} }, // #{idx}"
   end
   puts "};"
+  puts "size_t #{lang}_tileset_len = sizeof(#{lang}_tileset) / sizeof(#{lang}_tileset[0]);"
   seen = {}
   revmap =
     mapping
@@ -193,5 +194,6 @@ for lang, mapping in mappings
   next if lang == origlang
   puts
   puts "Tile *#{lang}_tileset = #{origlang}_tileset;"
+  puts "size_t #{lang}_tileset_len = sizeof(#{origlang}_tileset) / sizeof(#{origlang}_tileset[0]);"
   puts "ParsedTile (*#{lang}_tileset_parse)(uint8_t *ptr) = #{origlang}_tileset_parse;"
 end

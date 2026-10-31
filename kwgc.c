@@ -1488,7 +1488,7 @@ void dump_klv2(KwgNode *kwg, VecChar *word, uint32_t p, Tile tileset[static 1], 
   word->len = orig_len;
 }
 
-bool do_read_klv(const char *in, Tile tileset[static 1]) {
+bool do_read_klv(const char *in, Tile tileset[static 1], size_t tileset_len) {
   bool errored = false;
   bool defer_free_file_content = false;
   bool defer_free_klv1_values = false;
@@ -1528,6 +1528,13 @@ bool do_read_klv(const char *in, Tile tileset[static 1]) {
     fprintf(stderr, "klv has %u leave values for %u leaves\n", num_leaves, num_words);
     goto errored;
   }
+  // a tile past these tiles has no label to write
+  for (uint32_t i = 0; i < num_kwg_nodes; ++i) {
+    if (kwg[i].c >= tileset_len) {
+      fprintf(stderr, "klv has tile %u, past these %zu tiles\n", (unsigned)kwg[i].c, tileset_len);
+      goto errored;
+    }
+  }
   float *klv_values = (float *)values;
   float *klv1_values = NULL;
   if (!is_klv2) {
@@ -1556,32 +1563,34 @@ cleanup:
 // (-32 to 32), vowel (0 or 1), the number of alias labels and those, the
 // number of alias blank labels and those; 1 to 64 tiles
 
-bool tiles_by_name(const char *name, Tile **tileset, ParsedTile (**tileset_parse)(uint8_t *)) {
+bool tiles_by_name(const char *name, Tile **tileset, size_t *tileset_len, ParsedTile (**tileset_parse)(uint8_t *)) {
   const struct {
     const char *name;
     Tile *tileset;
+    size_t tileset_len;
     ParsedTile (*tileset_parse)(uint8_t *);
   } named[] = {
-    { "catalan", catalan_tileset, catalan_tileset_parse },
-    { "decimal", decimal_tileset, decimal_tileset_parse },
-    { "dutch", dutch_tileset, dutch_tileset_parse },
-    { "english", english_tileset, english_tileset_parse },
-    { "french", french_tileset, french_tileset_parse },
-    { "german", german_tileset, german_tileset_parse },
-    { "hex", hex_tileset, hex_tileset_parse },
-    { "hong-kong-english", hong_kong_english_tileset, hong_kong_english_tileset_parse },
-    { "norwegian", norwegian_tileset, norwegian_tileset_parse },
-    { "polish", polish_tileset, polish_tileset_parse },
-    { "slovene", slovene_tileset, slovene_tileset_parse },
-    { "spanish", spanish_tileset, spanish_tileset_parse },
-    { "super-catalan", super_catalan_tileset, super_catalan_tileset_parse },
-    { "super-english", super_english_tileset, super_english_tileset_parse },
-    { "super-german", super_german_tileset, super_german_tileset_parse },
-    { "swedish", swedish_tileset, swedish_tileset_parse },
+    { "catalan", catalan_tileset, catalan_tileset_len, catalan_tileset_parse },
+    { "decimal", decimal_tileset, decimal_tileset_len, decimal_tileset_parse },
+    { "dutch", dutch_tileset, dutch_tileset_len, dutch_tileset_parse },
+    { "english", english_tileset, english_tileset_len, english_tileset_parse },
+    { "french", french_tileset, french_tileset_len, french_tileset_parse },
+    { "german", german_tileset, german_tileset_len, german_tileset_parse },
+    { "hex", hex_tileset, hex_tileset_len, hex_tileset_parse },
+    { "hong-kong-english", hong_kong_english_tileset, hong_kong_english_tileset_len, hong_kong_english_tileset_parse },
+    { "norwegian", norwegian_tileset, norwegian_tileset_len, norwegian_tileset_parse },
+    { "polish", polish_tileset, polish_tileset_len, polish_tileset_parse },
+    { "slovene", slovene_tileset, slovene_tileset_len, slovene_tileset_parse },
+    { "spanish", spanish_tileset, spanish_tileset_len, spanish_tileset_parse },
+    { "super-catalan", super_catalan_tileset, super_catalan_tileset_len, super_catalan_tileset_parse },
+    { "super-english", super_english_tileset, super_english_tileset_len, super_english_tileset_parse },
+    { "super-german", super_german_tileset, super_german_tileset_len, super_german_tileset_parse },
+    { "swedish", swedish_tileset, swedish_tileset_len, swedish_tileset_parse },
   };
   for (size_t i = 0; i < sizeof(named) / sizeof(named[0]); ++i) {
     if (!strcmp(name, named[i].name)) {
       *tileset = named[i].tileset;
+      *tileset_len = named[i].tileset_len;
       *tileset_parse = named[i].tileset_parse;
       return true;
     }
@@ -1698,7 +1707,7 @@ typedef struct {
   LabelKind kind;
 } FileEntry;
 
-bool tiles_from_file(const char *path, Tile **tileset) {
+bool tiles_from_file(const char *path, Tile **tileset, size_t *tileset_len) {
   size_t len;
   uint8_t *text = read_all(path, &len, 0);
   if (!text) {
@@ -1790,6 +1799,7 @@ bool tiles_from_file(const char *path, Tile **tileset) {
   file_reader_index(&file_words);
   file_reader_index(&file_racks);
   *tileset = out;
+  *tileset_len = num_tiles;
   return true;
 }
 
@@ -1891,7 +1901,7 @@ static bool output_to(const char *out) {
   return false;
 }
 
-bool run_read_kwg(int argc, char **argv, Tile tileset[static 1]) {
+bool run_read_kwg(int argc, char **argv, Tile tileset[static 1], size_t tileset_len) {
   static const struct option opts[] = {
     { "graph", required_argument, NULL, 'g' },
     { "kbwg", no_argument, NULL, 'b' },
@@ -1914,17 +1924,18 @@ bool run_read_kwg(int argc, char **argv, Tile tileset[static 1]) {
     return false;
   }
   if (!output_to(argv[optind + 1])) return false;
-  return kbwg ? do_lang_rkbwg(argv[optind], tileset, graph, blanks) : do_lang_rkwg(argv[optind], tileset, graph, blanks);
+  return kbwg ? do_lang_rkbwg(argv[optind], tileset, tileset_len, graph, blanks)
+              : do_lang_rkwg(argv[optind], tileset, tileset_len, graph, blanks);
 }
 
-bool run_read_klv(int argc, char **argv, Tile tileset[static 1]) {
+bool run_read_klv(int argc, char **argv, Tile tileset[static 1], size_t tileset_len) {
   static const struct option opts[] = {
     { NULL, 0, NULL, 0 },
   };
   if (getopt_long(argc, argv, "", opts, NULL) != -1) return false;
   if (!positionals(argc, argv, 2, "the leave table and the leave,value lines to write")) return false;
   if (!output_to(argv[optind + 1])) return false;
-  return do_read_klv(argv[optind], tileset);
+  return do_read_klv(argv[optind], tileset, tileset_len);
 }
 
 void usage(FILE *f) {
@@ -1979,12 +1990,13 @@ int main(int argc, char **argv) {
     return 2;
   }
   Tile *tileset;
+  size_t tileset_len;
   ParsedTile (*words_parse)(uint8_t *);
   ParsedTile (*racks_parse)(uint8_t *);
-  if (tiles_by_name(tiles, &tileset, &words_parse)) {
+  if (tiles_by_name(tiles, &tileset, &tileset_len, &words_parse)) {
     racks_parse = words_parse;
   } else {
-    if (!tiles_from_file(tiles, &tileset)) return 1;
+    if (!tiles_from_file(tiles, &tileset, &tileset_len)) return 1;
     words_parse = file_words_parse;
     racks_parse = file_racks_parse;
   }
@@ -1998,9 +2010,9 @@ int main(int argc, char **argv) {
   } else if (!strcmp(task, "klv")) {
     ok = run_klv(task_argc, task_argv, racks_parse);
   } else if (!strcmp(task, "read-kwg")) {
-    ok = run_read_kwg(task_argc, task_argv, tileset);
+    ok = run_read_kwg(task_argc, task_argv, tileset, tileset_len);
   } else if (!strcmp(task, "read-klv")) {
-    ok = run_read_klv(task_argc, task_argv, tileset);
+    ok = run_read_klv(task_argc, task_argv, tileset, tileset_len);
   } else {
     fprintf(stderr, "no task \"%s\"\n", task);
     usage(stderr);
