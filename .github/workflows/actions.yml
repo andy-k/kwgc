@@ -9,9 +9,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - os: ubuntu-latest
+        - os: ubuntu-26.04
           vendor: gcc
-        - os: ubuntu-latest
+        - os: ubuntu-26.04
           vendor: clang
         - os: macos-latest
           vendor: clang
