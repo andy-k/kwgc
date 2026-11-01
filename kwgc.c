@@ -1536,6 +1536,15 @@ bool do_read_klv(const char *in, Tile tileset[static 1], size_t tileset_len) {
     }
   }
   float *klv_values = (float *)values;
+  // a klv2 value is refused as a load refuses it, and as a leave file's value
+  // is (parse_leave_value): not a number, or v * 1000 outside -2^31 .. 2^31
+  for (uint32_t i = 0; is_klv2 && i < num_leaves; ++i) {
+    float milli = klv_values[i] * 1000.0f;
+    if (!(milli >= -2147483648.0f && milli < 2147483648.0f)) {
+      fprintf(stderr, "klv's leave %u has the value %g, which a leave cannot hold\n", i, (double)klv_values[i]);
+      goto errored;
+    }
+  }
   float *klv1_values = NULL;
   if (!is_klv2) {
     klv1_values = malloc_or_die(((size_t)num_leaves + 1) * sizeof(float)); defer_free_klv1_values = true;
