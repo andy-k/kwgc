@@ -53,7 +53,7 @@ static bool XWG_HOLDS_TILE_0(XWG_NODE_T *nodes, uint32_t p, bool seen[static 1])
   }
 }
 
-bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool blanks) {
+bool XWG_DO_LANG(const char *in, Tile tileset[static 1], size_t tileset_len, ptrdiff_t root, bool blanks) {
   bool errored = false;
   bool defer_free_file_content = false;
   bool defer_free_seen = false;
@@ -64,6 +64,13 @@ bool XWG_DO_LANG(const char *in, Tile tileset[static 1], ptrdiff_t root, bool bl
   XWG_NODE_T *nodes = (XWG_NODE_T *)file_content;
   if (!XWG_CHECK(nodes, file_size, NULL)) goto errored;
   size_t num_nodes = file_size / sizeof(XWG_NODE_T);
+  // a tile past these tiles has no label to write
+  for (size_t i = 0; i < num_nodes; ++i) {
+    if (nodes[i].c >= tileset_len) {
+      fprintf(stderr, "the word graph has tile %u, past these %zu tiles\n", (unsigned)nodes[i].c, tileset_len);
+      goto errored;
+    }
+  }
   // a graph of one node (an empty dawg) has no node 1, so no gaddag; read
   // refuses to read one too
   if ((size_t)root >= num_nodes) {

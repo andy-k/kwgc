@@ -43,6 +43,7 @@ Tile catalan_tileset[] = {
   { .label = "X", .blank_label = "x" }, // 25
   { .label = "Z", .blank_label = "z" }, // 26
 };
+size_t catalan_tileset_len = sizeof(catalan_tileset) / sizeof(catalan_tileset[0]);
 
 ParsedTile catalan_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -152,6 +153,7 @@ Tile decimal_tileset[] = {
   { .label = "[62]", .blank_label = "[-62]" }, // 62
   { .label = "[63]", .blank_label = "[-63]" }, // 63
 };
+size_t decimal_tileset_len = sizeof(decimal_tileset) / sizeof(decimal_tileset[0]);
 
 ParsedTile decimal_tileset_parse(uint8_t *ptr) {
   if (ptr[0] != '[') return (ParsedTile){ .len = 0, .index = 0 };
@@ -193,6 +195,7 @@ Tile dutch_tileset[] = {
   { .label = "Y", .blank_label = "y" }, // 25
   { .label = "Z", .blank_label = "z" }, // 26
 };
+size_t dutch_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 
 ParsedTile dutch_tileset_parse(uint8_t *ptr) {
   if (*ptr == '?') return (ParsedTile){ .len = 1, .index = 0 };
@@ -267,6 +270,7 @@ Tile hex_tileset[] = {
   { .label = "3e", .blank_label = "be" }, // 62
   { .label = "3f", .blank_label = "bf" }, // 63
 };
+size_t hex_tileset_len = sizeof(hex_tileset) / sizeof(hex_tileset[0]);
 
 ParsedTile hex_tileset_parse(uint8_t *ptr) {
   uint8_t hi;
@@ -313,6 +317,7 @@ Tile german_tileset[] = {
   { .label = "Y", .blank_label = "y" }, // 28
   { .label = "Z", .blank_label = "z" }, // 29
 };
+size_t german_tileset_len = sizeof(german_tileset) / sizeof(german_tileset[0]);
 
 ParsedTile german_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -369,6 +374,7 @@ Tile norwegian_tileset[] = {
   { .label = "Ö", .blank_label = "ö" }, // 31
   { .label = "Å", .blank_label = "å" }, // 32
 };
+size_t norwegian_tileset_len = sizeof(norwegian_tileset) / sizeof(norwegian_tileset[0]);
 
 ParsedTile norwegian_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -431,6 +437,7 @@ Tile polish_tileset[] = {
   { .label = "Ź", .blank_label = "ź" }, // 31
   { .label = "Ż", .blank_label = "ż" }, // 32
 };
+size_t polish_tileset_len = sizeof(polish_tileset) / sizeof(polish_tileset[0]);
 
 ParsedTile polish_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -504,6 +511,7 @@ Tile slovene_tileset[] = {
   { .label = "Z", .blank_label = "z" }, // 28
   { .label = "Ž", .blank_label = "ž" }, // 29
 };
+size_t slovene_tileset_len = sizeof(slovene_tileset) / sizeof(slovene_tileset[0]);
 
 ParsedTile slovene_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -558,6 +566,7 @@ Tile spanish_tileset[] = {
   { .label = "Y", .blank_label = "y" }, // 27
   { .label = "Z", .blank_label = "z" }, // 28
 };
+size_t spanish_tileset_len = sizeof(spanish_tileset) / sizeof(spanish_tileset[0]);
 
 ParsedTile spanish_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -627,6 +636,7 @@ Tile swedish_tileset[] = {
   { .label = "Æ", .blank_label = "æ" }, // 30
   { .label = "Ö", .blank_label = "ö" }, // 31
 };
+size_t swedish_tileset_len = sizeof(swedish_tileset) / sizeof(swedish_tileset[0]);
 
 ParsedTile swedish_tileset_parse(uint8_t *ptr) {
   static const uint8_t map[26] = {
@@ -653,19 +663,25 @@ ParsedTile swedish_tileset_parse(uint8_t *ptr) {
 }
 
 Tile *super_catalan_tileset = catalan_tileset;
+size_t super_catalan_tileset_len = sizeof(catalan_tileset) / sizeof(catalan_tileset[0]);
 ParsedTile (*super_catalan_tileset_parse)(uint8_t *ptr) = catalan_tileset_parse;
 
 Tile *super_german_tileset = german_tileset;
+size_t super_german_tileset_len = sizeof(german_tileset) / sizeof(german_tileset[0]);
 ParsedTile (*super_german_tileset_parse)(uint8_t *ptr) = german_tileset_parse;
 
 Tile *english_tileset = dutch_tileset;
+size_t english_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 ParsedTile (*english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
 Tile *french_tileset = dutch_tileset;
+size_t french_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 ParsedTile (*french_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
 Tile *hong_kong_english_tileset = dutch_tileset;
+size_t hong_kong_english_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 ParsedTile (*hong_kong_english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
 Tile *super_english_tileset = dutch_tileset;
+size_t super_english_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 ParsedTile (*super_english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
