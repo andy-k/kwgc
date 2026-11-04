@@ -682,6 +682,10 @@ Tile *hong_kong_english_tileset = dutch_tileset;
 size_t hong_kong_english_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 ParsedTile (*hong_kong_english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
 
+Tile *italian_tileset = dutch_tileset;
+size_t italian_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
+ParsedTile (*italian_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
+
 Tile *super_english_tileset = dutch_tileset;
 size_t super_english_tileset_len = sizeof(dutch_tileset) / sizeof(dutch_tileset[0]);
 ParsedTile (*super_english_tileset_parse)(uint8_t *ptr) = dutch_tileset_parse;
