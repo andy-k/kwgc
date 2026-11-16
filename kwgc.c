@@ -63,18 +63,6 @@ int fprint_dur_us(FILE *fp, struct timeval tv_end, struct timeval tv_start) {
 
 // generic vec types
 
-#define VEC_ELT_NAME Bool
-#define VEC_ELT_T bool
-#include "generic_vec.c"
-#undef VEC_ELT_T
-#undef VEC_ELT_NAME
-
-#define VEC_ELT_NAME U64
-#define VEC_ELT_T uint64_t
-#include "generic_vec.c"
-#undef VEC_ELT_T
-#undef VEC_ELT_NAME
-
 #define VEC_ELT_NAME Byte
 #define VEC_ELT_T uint8_t
 #include "generic_vec.c"
@@ -227,23 +215,11 @@ typedef struct {
 #undef VEC_ELT_T
 #undef VEC_ELT_NAME
 
-static inline void do_hash(uint64_t *hash, uint8_t data) {
-  *hash = (*hash * 3467) ^ (data ^ 0xff);
-}
-
+// the whole state in one u64: the table's Fibonacci hashing mixes it.
 static inline uint64_t kwgc_state_hash(KwgcState self[static 1]) {
-  uint64_t hash = 0;
-  do_hash(&hash, self->tile);
-  do_hash(&hash, self->accepts);
-  do_hash(&hash, ((uint8_t *)&self->arc_index)[0]);
-  do_hash(&hash, ((uint8_t *)&self->arc_index)[1]);
-  do_hash(&hash, ((uint8_t *)&self->arc_index)[2]);
-  do_hash(&hash, ((uint8_t *)&self->arc_index)[3]);
-  do_hash(&hash, ((uint8_t *)&self->next_index)[0]);
-  do_hash(&hash, ((uint8_t *)&self->next_index)[1]);
-  do_hash(&hash, ((uint8_t *)&self->next_index)[2]);
-  do_hash(&hash, ((uint8_t *)&self->next_index)[3]);
-  return hash;
+  uint64_t tile_accepts = ((uint64_t)self->tile << 1) | self->accepts;
+  return ((uint64_t)self->arc_index | ((uint64_t)self->next_index << 32)) ^
+    ((tile_accepts >> 8) | (tile_accepts << 56));
 }
 
 static inline bool kwgc_state_eql(KwgcState a[static 1], KwgcState b[static 1]) {
@@ -281,10 +257,11 @@ typedef struct {
   KhmKwgcStateU32 states_finder;
 } KwgcStateMaker;
 
-static inline KwgcStateMaker kwgc_state_maker_new(void) {
+// room for expected_len states before the finder grows.
+static inline KwgcStateMaker kwgc_state_maker_new(size_t expected_len) {
   return (KwgcStateMaker){
       .states = vecKwgcState_new(),
-      .states_finder = khmKwgcStateU32_new(),
+      .states_finder = khmKwgcStateU32_new_for_len(expected_len),
     };
 }
 
@@ -303,14 +280,9 @@ static inline uint32_t kwgc_state_maker_make_state(KwgcStateMaker self[static 1]
         .tile = node_transition->tile,
         .accepts = node_transition->accepts,
       };
-    uint32_t *existing_state_index = khmKwgcStateU32_get(&self->states_finder, &state);
-    if (existing_state_index) {
-      ret = *existing_state_index;
-    } else {
-      ret = (uint32_t)self->states.len;
-      vecKwgcState_push(&self->states, &state);
-      khmKwgcStateU32_set(&self->states_finder, &state, &ret);
-    }
+    uint32_t new_index = (uint32_t)self->states.len;
+    ret = *khmKwgcStateU32_get_or_set(&self->states_finder, &state, &new_index);
+    if (ret == new_index) vecKwgcState_push(&self->states, &state);
   }
   return ret;
 }
@@ -874,7 +846,7 @@ static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_ga
     }
   }
 
-  KwgcStateMaker new_state_maker = kwgc_state_maker_new();
+  KwgcStateMaker new_state_maker = kwgc_state_maker_new(states_len);
   vecKwgcState_push(&new_state_maker.states, &states[0]);
   {
     uint32_t zero = 0;
@@ -930,7 +902,8 @@ static inline void kwgc_write_node(uint8_t *pout, uint32_t defragged_arc_index, 
 
 // ret must initially be empty.
 static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], bool is_gaddag, BuildLayout build_layout, bool reordered, WriteNodeFn write_node, uint32_t max_nodes) {
-  KwgcStateMaker state_maker = kwgc_state_maker_new();
+  // room for a state a word.
+  KwgcStateMaker state_maker = kwgc_state_maker_new(sorted_machine_words->tiles_slices.len);
   // The sink state always exists.
   vecKwgcState_push(&state_maker.states, &(KwgcState){
       .arc_index = 0,
