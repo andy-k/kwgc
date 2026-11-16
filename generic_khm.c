@@ -4,7 +4,6 @@
 
 // usage:
 
-// define Vec for Bool, U64, K, T.
 // implement uint64_t hashFunc(KHM_K_T*).
 // implement bool eqlFunc(KHM_K_T*, KHM_K_T*).
 
@@ -22,25 +21,40 @@
 // undef KHM_K_T
 // undef KHM_K_NAME
 
+// an open-addressing table, probed linearly, of a power of two slots kept at
+// most three quarters full. each slot holds its key and value, so a probe
+// reads no other memory. a hash's top bits, after Fibonacci hashing, pick
+// its slot.
+
 #define GENERIC_CONCAT_(a, b) a##b
 #define GENERIC_CONCAT(a, b) GENERIC_CONCAT_(a, b)
 
+// Fibonacci hashing's multiplier, 2^64 divided by the golden ratio.
+#define KHM_FIBONACCI_MULTIPLIER UINT64_C(0x9e3779b97f4a7c15)
+
 #define KHM_T GENERIC_CONCAT(GENERIC_CONCAT(Khm, KHM_K_NAME), KHM_V_NAME)
+#define KHM_SLOT_T GENERIC_CONCAT(KHM_T, Slot)
 #define KHM_F(suffix) GENERIC_CONCAT(GENERIC_CONCAT(GENERIC_CONCAT(GENERIC_CONCAT(khm, KHM_K_NAME), KHM_V_NAME), _), suffix)
 
-#define KHM_VEC_K_T GENERIC_CONCAT(Vec, KHM_K_NAME)
-#define KHM_VEC_K_F(suffix) GENERIC_CONCAT(GENERIC_CONCAT(GENERIC_CONCAT(vec, KHM_K_NAME), _), suffix)
-#define KHM_VEC_V_T GENERIC_CONCAT(Vec, KHM_V_NAME)
-#define KHM_VEC_V_F(suffix) GENERIC_CONCAT(GENERIC_CONCAT(GENERIC_CONCAT(vec, KHM_V_NAME), _), suffix)
+typedef struct {
+  KHM_K_T key;
+  KHM_V_T value;
+  bool occupied;
+} KHM_SLOT_T;
 
 typedef struct {
-  VecBool occupieds;
-  VecU64 hashes;
-  KHM_VEC_K_T keys;
-  KHM_VEC_V_T values;
+  KHM_SLOT_T *slots;
+  size_t cap; // always power of two.
+  unsigned shift; // 64 - log2(cap).
   size_t len;
   size_t last_probe; // note: this would be useful if caller needs to strdup()
 } KHM_T;
+
+static inline KHM_SLOT_T *KHM_F(alloc_slots)(size_t cap) {
+  KHM_SLOT_T *slots = malloc_or_die(cap * sizeof(KHM_SLOT_T));
+  for (size_t i = 0; i < cap; ++i) slots[i].occupied = false;
+  return slots;
+}
 
 // KhmKV h = khmKV_new_cap(cap);
 static inline KHM_T KHM_F(new_cap)(size_t cap) {
@@ -48,24 +62,15 @@ static inline KHM_T KHM_F(new_cap)(size_t cap) {
     fprintf(stderr, "invalid cap=%zu\n", cap);
     abort();
   }
-  KHM_T ret = {
-    .occupieds = vecBool_new(),
-    .hashes = vecU64_new(),
-    .keys = KHM_VEC_K_F(new)(),
-    .values = KHM_VEC_V_F(new)(),
+  unsigned log2_cap = 0;
+  while (((size_t)1 << log2_cap) < cap) ++log2_cap;
+  return (KHM_T){
+    .slots = KHM_F(alloc_slots)(cap),
+    .cap = cap,
+    .shift = 64 - log2_cap,
     .len = 0,
     .last_probe = (size_t)-1,
   };
-  vecBool_ensure_cap_exact(&ret.occupieds, cap);
-  vecU64_ensure_cap_exact(&ret.hashes, cap);
-  KHM_VEC_K_F(ensure_cap_exact)(&ret.keys, cap);
-  KHM_VEC_V_F(ensure_cap_exact)(&ret.values, cap);
-  memset(ret.occupieds.ptr, 0, cap * sizeof(bool));
-  ret.occupieds.len = cap;
-  ret.hashes.len = cap;
-  ret.keys.len = cap;
-  ret.values.len = cap;
-  return ret;
 }
 
 // KhmKV h = khmKV_new();
@@ -73,28 +78,39 @@ static inline KHM_T KHM_F(new)(void) {
   return KHM_F(new_cap)(16);
 }
 
+// KhmKV h = khmKV_new_for_len(expected_len);
+// room for expected_len keys before it grows.
+static inline KHM_T KHM_F(new_for_len)(size_t expected_len) {
+  size_t cap = 16;
+  while (cap - cap / 4 < expected_len) cap <<= 1; // ignore overflow.
+  return KHM_F(new_cap)(cap);
+}
+
 // khmKV_free(&khm);
 static inline void KHM_F(free)(KHM_T self[static 1]) {
-  KHM_VEC_V_F(free)(&self->values);
-  KHM_VEC_K_F(free)(&self->keys);
-  vecU64_free(&self->hashes);
-  vecBool_free(&self->occupieds);
+  free(self->slots);
+  self->slots = NULL;
   self->len = 0;
+}
+
+static inline size_t KHM_F(bucket)(KHM_T self[static 1], uint64_t hsh) {
+  return (size_t)((hsh * KHM_FIBONACCI_MULTIPLIER) >> self->shift);
 }
 
 // size_t idx = khmKV_locate(&khm, &k, hshk(pk));
 // returns index where the value is or would end up, or (size_t)-1 if full.
 static inline size_t KHM_F(locate)(KHM_T self[static 1], KHM_K_T *pk, uint64_t hsh) {
-  size_t mask = self->occupieds.len - 1; // always power of two.
-  size_t bucket = hsh & mask;
+  size_t mask = self->cap - 1;
+  size_t bucket = KHM_F(bucket)(self, hsh);
   size_t probe = bucket;
   do {
-    if (!self->occupieds.ptr[probe]) return probe;
+    KHM_SLOT_T *slot = self->slots + probe;
+    if (!slot->occupied) return probe;
 #ifndef __clang__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-    if (self->hashes.ptr[probe] == hsh && KHM_K_EQLFUNC(&self->keys.ptr[probe], pk)) return probe;
+    if (KHM_K_EQLFUNC(&slot->key, pk)) return probe;
 #ifndef __clang__
 #pragma GCC diagnostic pop
 #endif
@@ -109,62 +125,72 @@ static inline KHM_V_T *KHM_F(get)(KHM_T self[static 1], KHM_K_T *pk) {
   size_t probe = KHM_F(locate)(self, pk, hsh);
   self->last_probe = probe;
   if (probe == (size_t)-1) return NULL;
-  if (self->occupieds.ptr[probe]) return self->values.ptr + probe;
+  if (self->slots[probe].occupied) return &self->slots[probe].value;
   return NULL;
+}
+
+// twice the slots, every key rehashed into them.
+static void KHM_F(grow)(KHM_T self[static 1]) {
+  KHM_T old = *self;
+  self->cap <<= 1; // ignore overflow.
+  --self->shift;
+  self->slots = KHM_F(alloc_slots)(self->cap);
+  size_t mask = self->cap - 1;
+  for (size_t i = 0; i < old.cap; ++i) {
+    KHM_SLOT_T *old_slot = old.slots + i;
+    if (old_slot->occupied) {
+      size_t probe = KHM_F(bucket)(self, KHM_K_HASHFUNC(&old_slot->key));
+      while (self->slots[probe].occupied) probe = (probe + 1) & mask;
+      memcpy(self->slots + probe, old_slot, sizeof(KHM_SLOT_T));
+    }
+  }
+  KHM_F(free)(&old);
+}
+
+// the slot k is or would be in, with room for it.
+static inline size_t KHM_F(locate_for_set)(KHM_T self[static 1], KHM_K_T *pk, uint64_t hsh) {
+  size_t probe = self->len + self->len / 3 >= self->cap ? (size_t)-1 : KHM_F(locate)(self, pk, hsh);
+  if (probe == (size_t)-1) {
+    // no space. grow.
+    KHM_F(grow)(self);
+    probe = KHM_F(locate)(self, pk, hsh);
+  }
+  return probe;
 }
 
 // bool inserted = khmKV_set(&khm, &k, &v);
 static inline bool KHM_F(set)(KHM_T self[static 1], KHM_K_T *pk, KHM_V_T *pv) {
   uint64_t hsh = KHM_K_HASHFUNC(pk);
-  size_t probe = self->len + self->len / 3 >= self->occupieds.len ? (size_t)-1 : KHM_F(locate)(self, pk, hsh);
-  if (probe == (size_t)-1) {
-    // no space. grow.
-    size_t next_cap = self->occupieds.len << 1; // ignore overflow.
-    KHM_T old = *self;
-    // rehash.
-    self->occupieds.ptr = NULL;
-    self->hashes.ptr = NULL;
-    self->keys.ptr = NULL;
-    self->values.ptr = NULL;
-    vecBool_ensure_cap_exact(&self->occupieds, next_cap);
-    vecU64_ensure_cap_exact(&self->hashes, next_cap);
-    KHM_VEC_K_F(ensure_cap_exact)(&self->keys, next_cap);
-    KHM_VEC_V_F(ensure_cap_exact)(&self->values, next_cap);
-    memset(self->occupieds.ptr, 0, next_cap * sizeof(bool));
-    self->occupieds.len = next_cap;
-    self->hashes.len = next_cap;
-    self->keys.len = next_cap;
-    self->values.len = next_cap;
-    for (size_t i = 0; i < old.occupieds.len; ++i) {
-      if (old.occupieds.ptr[i]) {
-        uint64_t old_hash = old.hashes.ptr[i];
-        probe = KHM_F(locate)(self, old.keys.ptr + i, old_hash);
-        self->occupieds.ptr[probe] = true;
-        self->hashes.ptr[probe] = old_hash;
-        memcpy(self->keys.ptr + probe, old.keys.ptr + i, sizeof(KHM_K_T));
-        memcpy(self->values.ptr + probe, old.values.ptr + i, sizeof(KHM_V_T));
-      }
-    }
-    KHM_F(free)(&old);
-    probe = KHM_F(locate)(self, pk, hsh);
-  }
+  size_t probe = KHM_F(locate_for_set)(self, pk, hsh);
   self->last_probe = probe;
-  if (self->occupieds.ptr[probe]) {
-    memcpy(self->values.ptr + probe, pv, sizeof(KHM_V_T));
+  KHM_SLOT_T *slot = self->slots + probe;
+  if (slot->occupied) {
+    memcpy(&slot->value, pv, sizeof(KHM_V_T));
     return false; // replaced, old value is gone.
   }
-  self->occupieds.ptr[probe] = true;
-  self->hashes.ptr[probe] = hsh;
-  memcpy(self->keys.ptr + probe, pk, sizeof(KHM_K_T));
-  memcpy(self->values.ptr + probe, pv, sizeof(KHM_V_T));
+  slot->occupied = true;
+  memcpy(&slot->key, pk, sizeof(KHM_K_T));
+  memcpy(&slot->value, pv, sizeof(KHM_V_T));
   ++self->len;
   return true; // inserted.
 }
 
-#undef KHM_VEC_V_F
-#undef KHM_VEC_V_T
-#undef KHM_VEC_K_F
-#undef KHM_VEC_K_T
+// V *v = khmKV_get_or_set(&khm, &k, &v);
+// the value k has, else v, now k's: one probe either way.
+static inline KHM_V_T *KHM_F(get_or_set)(KHM_T self[static 1], KHM_K_T *pk, KHM_V_T *pv) {
+  uint64_t hsh = KHM_K_HASHFUNC(pk);
+  size_t probe = KHM_F(locate_for_set)(self, pk, hsh);
+  self->last_probe = probe;
+  KHM_SLOT_T *slot = self->slots + probe;
+  if (!slot->occupied) {
+    slot->occupied = true;
+    memcpy(&slot->key, pk, sizeof(KHM_K_T));
+    memcpy(&slot->value, pv, sizeof(KHM_V_T));
+    ++self->len;
+  }
+  return &slot->value;
+}
 
 #undef KHM_F
+#undef KHM_SLOT_T
 #undef KHM_T
