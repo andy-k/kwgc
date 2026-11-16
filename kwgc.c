@@ -322,7 +322,9 @@ static inline void kwgc_transition_stack_pop(KwgcTransitionStack self[static 1],
   self->transitions.len = start_of_batch;
 }
 
-static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1], Wordlist sorted_machine_words[static 1], uint32_t dawg_start_state, bool is_gaddag_phase) {
+// in the gaddag phase, a word that ends at a turnaround (tile 0) is followed,
+// past its len, by the index of the dawg's node it points to.
+static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1], Wordlist sorted_machine_words[static 1], bool is_gaddag_phase) {
   KwgcTransitionStack transition_stack = kwgc_transition_stack_new();
   for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
     OfsLen *this_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index];
@@ -344,19 +346,9 @@ static inline uint32_t kwgc_state_maker_make_dawg(KwgcStateMaker self[static 1],
     }
     if (is_gaddag_phase && !sorted_machine_words->tiles_bytes.ptr[this_word->ofs + this_word->len - 1]) {
       --transition_stack.indexes.len;
-      // gaddag["AC@"] points to dawg["CA"]
-      uint32_t p = dawg_start_state;
-      for (uint32_t i = this_word->len - 1; i > 0; --i) {
-        uint8_t sought_tile = sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1];
-        while (true) {
-          KwgcState *pstate = &self->states.ptr[p];
-          if (pstate->tile == sought_tile) {
-            p = pstate->arc_index;
-            break;
-          }
-          p = pstate->next_index;
-        }
-      }
+      // gaddag["AC@"] points to dawg["CA"], found as the drowword was made.
+      uint32_t p;
+      memcpy(&p, sorted_machine_words->tiles_bytes.ptr + this_word->ofs + this_word->len, sizeof(uint32_t));
       transition_stack.transitions.ptr[transition_stack.transitions.len - 1].arc_index = p;
     } else {
       transition_stack.transitions.ptr[transition_stack.transitions.len - 1].accepts = true;
@@ -948,10 +940,16 @@ static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], boo
     });
   uint32_t gaddag_start_state = 0;
   khmKwgcStateU32_set(&state_maker.states_finder, state_maker.states.ptr, &gaddag_start_state);
-  uint32_t dawg_start_state = kwgc_state_maker_make_dawg(&state_maker, sorted_machine_words, 0, false);
+  uint32_t dawg_start_state = kwgc_state_maker_make_dawg(&state_maker, sorted_machine_words, false);
   if (is_gaddag) {
     OfsLen cur_ofs_len = { .ofs = 0, .len = 0 };
     Wordlist gaddag_wl = wordlist_new();
+    // the dawg's nodes along path_tiles, followed one at a time: [0] is the
+    // start state, [i + 1] the node path_tiles[i] leads to. each word walks
+    // on only from the prefix it shares with the last one walked.
+    VecU32 path = vecU32_new();
+    VecByte path_tiles = vecByte_new();
+    vecU32_push(&path, &dawg_start_state);
     for (size_t machine_word_index = 0; machine_word_index < sorted_machine_words->tiles_slices.len; ++machine_word_index) {
       OfsLen *this_word = &sorted_machine_words->tiles_slices.ptr[machine_word_index];
       uint32_t prefix_len = 0;
@@ -971,19 +969,49 @@ static void xwgc_build(VecU32 *ret, Wordlist sorted_machine_words[static 1], boo
       cur_ofs_len.len = this_word->len;
       vecOfsLen_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
       cur_ofs_len.ofs += cur_ofs_len.len;
+      if (this_word->len - 1 > prefix_len) {
+        // keep the walk's prefix it shares with this word, and go on to the
+        // prefix one tile short of it.
+        uint8_t *this_tiles = sorted_machine_words->tiles_bytes.ptr + this_word->ofs;
+        size_t num_kept = 0;
+        size_t max_kept = path_tiles.len < this_word->len - 1 ? path_tiles.len : this_word->len - 1;
+        while (num_kept < max_kept && path_tiles.ptr[num_kept] == this_tiles[num_kept]) ++num_kept;
+        path.len = num_kept + 1;
+        path_tiles.len = num_kept;
+        for (size_t i = num_kept; i < this_word->len - 1; ++i) {
+          uint8_t sought_tile = this_tiles[i];
+          uint32_t p = path.ptr[path.len - 1];
+          while (true) {
+            KwgcState *pstate = &state_maker.states.ptr[p];
+            if (pstate->tile == sought_tile) {
+              p = pstate->arc_index;
+              break;
+            }
+            p = pstate->next_index;
+          }
+          vecU32_push(&path, &p);
+          vecByte_push(&path_tiles, &this_tiles[i]);
+        }
+      }
       uint8_t zero = 0;
       for (size_t j = this_word->len - 1; j > prefix_len; --j) {
         for (size_t i = j; i > 0; --i) {
           vecByte_push(&gaddag_wl.tiles_bytes, &sorted_machine_words->tiles_bytes.ptr[this_word->ofs + i - 1]);
         }
         vecByte_push(&gaddag_wl.tiles_bytes, &zero);
-        cur_ofs_len.len = j + 1;
+        // gaddag["AC@"] points to dawg["CA"], kept past the word's len.
+        vecByte_ensure_cap(&gaddag_wl.tiles_bytes, gaddag_wl.tiles_bytes.len + sizeof(uint32_t));
+        memcpy(gaddag_wl.tiles_bytes.ptr + gaddag_wl.tiles_bytes.len, &path.ptr[j], sizeof(uint32_t));
+        gaddag_wl.tiles_bytes.len += sizeof(uint32_t);
+        cur_ofs_len.len = (uint32_t)j + 1;
         vecOfsLen_push(&gaddag_wl.tiles_slices, &cur_ofs_len);
-        cur_ofs_len.ofs += cur_ofs_len.len;
+        cur_ofs_len.ofs += cur_ofs_len.len + (uint32_t)sizeof(uint32_t);
       }
     }
+    vecByte_free(&path_tiles);
+    vecU32_free(&path);
     wordlist_sort(&gaddag_wl);
-    gaddag_start_state = kwgc_state_maker_make_dawg(&state_maker, &gaddag_wl, dawg_start_state, true);
+    gaddag_start_state = kwgc_state_maker_make_dawg(&state_maker, &gaddag_wl, true);
     wordlist_free(&gaddag_wl);
   }
   if (reordered) kwgc_reorder_states(&state_maker, is_gaddag, &dawg_start_state, &gaddag_start_state);
