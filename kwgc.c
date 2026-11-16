@@ -699,17 +699,6 @@ static bool kwgc_absorb(KwgcAbsorber self[static 1], uint32_t tails[static 1], u
   return false;
 }
 
-uint32_t *qc_ref_to_end_lens; // temp global, do not free().
-uint32_t *qc_ref_movable; // temp global, do not free().
-int qc_reorder_by_len(const void *a, const void *b) {
-  uint32_t head_a = qc_ref_movable[*(uint32_t *)a];
-  uint32_t head_b = qc_ref_movable[*(uint32_t *)b];
-  uint32_t len_a = qc_ref_to_end_lens[head_a];
-  uint32_t len_b = qc_ref_to_end_lens[head_b];
-  if (len_a != len_b) return len_a > len_b ? -1 : 1;
-  return (head_a > head_b) - (head_a < head_b);
-}
-
 // an entry is a node's tile, accepts and arc, keyed as a state with no next
 static inline KwgcState kwgc_entry_key(KwgcState state[static 1]) {
   return (KwgcState){
@@ -817,12 +806,24 @@ static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_ga
   vecU32_free(&entry_counts);
   khmKwgcStateU32_free(&entry_indexes);
 
-  // the longest list first, then the earliest
+  // the longest list first, then the earliest: movable is in index order,
+  // which a sort keyed by length alone keeps among equal lengths.
   uint32_t *by_len = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
-  for (uint32_t i = 0; i < num_movable; ++i) by_len[i] = i;
-  qc_ref_movable = movable.ptr;
-  qc_ref_to_end_lens = to_end_lens;
-  qsort(by_len, num_movable, sizeof(uint32_t), qc_reorder_by_len);
+  {
+    Keyed *keyed = malloc_or_die((num_movable + 1) * sizeof(Keyed));
+    Keyed *scratch = malloc_or_die((num_movable + 1) * sizeof(Keyed));
+    for (uint32_t i = 0; i < num_movable; ++i) {
+      keyed[i] = (Keyed){
+          .key = (uint32_t)~to_end_lens[movable.ptr[i]],
+          .index = i,
+          .aux = 0,
+        };
+    }
+    keyed_sort(keyed, scratch, num_movable);
+    for (uint32_t i = 0; i < num_movable; ++i) by_len[i] = keyed[i].index;
+    free(scratch);
+    free(keyed);
+  }
 
   uint32_t *tails = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
   uint32_t *tried = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
