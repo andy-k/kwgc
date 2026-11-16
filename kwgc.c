@@ -184,9 +184,53 @@ static inline void wordlist_free(Wordlist self[static 1]) {
   vecOfsLen_free(&self->tiles_slices);
 }
 
+#define WORD_KEY_LEN ((uint32_t)sizeof(uint64_t))
+
+// a word's first tiles, big-endian, 0 past its last: keys in this order
+// are in the words' order, and words of equal keys are told apart by
+// qc_tiles_slices.
+static inline uint64_t word_key(uint8_t tiles[static 1], uint32_t len) {
+  uint64_t key = 0;
+  for (uint32_t i = 0; i < WORD_KEY_LEN; ++i) key = (key << CHAR_BIT) | (i < len ? tiles[i] : 0);
+  return key;
+}
+
 static inline void wordlist_sort(Wordlist self[static 1]) {
   qc_ref_tiles_bytes = self->tiles_bytes.ptr;
-  qsort(self->tiles_slices.ptr, self->tiles_slices.len, sizeof(OfsLen), qc_tiles_slices);
+  size_t n = self->tiles_slices.len;
+  OfsLen *slices = self->tiles_slices.ptr;
+  Keyed *keyed = malloc_or_die((n + 1) * sizeof(Keyed));
+  bool is_sorted = true;
+  for (size_t i = 0; i < n; ++i) {
+    keyed[i] = (Keyed){
+        .key = word_key(self->tiles_bytes.ptr + slices[i].ofs, slices[i].len),
+        .index = slices[i].ofs,
+        .aux = slices[i].len,
+      };
+    if (i > 0 && is_sorted && (keyed[i].key < keyed[i - 1].key ||
+          (keyed[i].key == keyed[i - 1].key && qc_tiles_slices(&slices[i - 1], &slices[i]) > 0))) {
+      is_sorted = false;
+    }
+  }
+  if (!is_sorted) {
+    Keyed *scratch = malloc_or_die((n + 1) * sizeof(Keyed));
+    keyed_sort(keyed, scratch, n);
+    free(scratch);
+    for (size_t i = 0; i < n; ++i) {
+      slices[i] = (OfsLen){
+          .ofs = keyed[i].index,
+          .len = keyed[i].aux,
+        };
+    }
+    // words of equal keys, by their tiles.
+    for (size_t i = 0; i < n; ) {
+      size_t j = i + 1;
+      while (j < n && keyed[j].key == keyed[i].key) ++j;
+      if (j - i > 1) qsort(slices + i, j - i, sizeof(OfsLen), qc_tiles_slices);
+      i = j;
+    }
+  }
+  free(keyed);
 }
 
 static inline void wordlist_dedup(Wordlist self[static 1]) {
