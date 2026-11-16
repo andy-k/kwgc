@@ -738,22 +738,22 @@ static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_ga
   }
   uint32_t num_movable = (uint32_t)movable.len;
 
-  KhmKwgcStateU32 entry_indexes = khmKwgcStateU32_new();
+  // room for an entry a list, before it grows.
+  KhmKwgcStateU32 entry_indexes = khmKwgcStateU32_new_for_len(num_movable);
   VecU32 entry_counts = vecU32_new();
+  // each list's entries, in list order, as they are counted.
+  VecU32 list_entries = vecU32_new();
   for (uint32_t i = 0; i < num_movable; ++i) {
     for (uint32_t p = movable.ptr[i]; p; p = states[p].next_index) {
       KwgcState key = kwgc_entry_key(&states[p]);
-      uint32_t *found = khmKwgcStateU32_get(&entry_indexes, &key);
-      uint32_t entry_index;
-      if (found) {
-        entry_index = *found;
-      } else {
-        entry_index = (uint32_t)entry_counts.len;
-        khmKwgcStateU32_set(&entry_indexes, &key, &entry_index);
+      uint32_t new_entry_index = (uint32_t)entry_counts.len;
+      uint32_t entry_index = *khmKwgcStateU32_get_or_set(&entry_indexes, &key, &new_entry_index);
+      if (entry_index == new_entry_index) {
         uint32_t zero = 0;
         vecU32_push(&entry_counts, &zero);
       }
       ++entry_counts.ptr[entry_index];
+      vecU32_push(&list_entries, &entry_index);
     }
   }
   uint32_t num_entries = (uint32_t)entry_counts.len;
@@ -768,12 +768,12 @@ static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_ga
   uint32_t *postings_fill = malloc_or_die((num_entries + 1) * sizeof(uint32_t));
   memcpy(postings_fill, postings_starts, (num_entries + 1) * sizeof(uint32_t));
   uint32_t *rarest_entries = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  uint32_t *next_list_entry = list_entries.ptr;
   for (uint32_t i = 0; i < num_movable; ++i) {
     uint32_t rarest_entry = 0;
     uint32_t rarest_count = (uint32_t)~0;
     for (uint32_t p = movable.ptr[i]; p; p = states[p].next_index) {
-      KwgcState key = kwgc_entry_key(&states[p]);
-      uint32_t entry_index = *khmKwgcStateU32_get(&entry_indexes, &key);
+      uint32_t entry_index = *next_list_entry++;
       postings[postings_fill[entry_index]++] = i;
       uint32_t entry_count = entry_counts.ptr[entry_index];
       if (entry_count < rarest_count) {
@@ -784,6 +784,7 @@ static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_ga
     rarest_entries[i] = rarest_entry;
   }
   free(postings_fill);
+  vecU32_free(&list_entries);
   vecU32_free(&entry_counts);
   khmKwgcStateU32_free(&entry_indexes);
 
