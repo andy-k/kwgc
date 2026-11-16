@@ -145,8 +145,14 @@ static void keyed_sort(Keyed v[static 1], Keyed scratch[static 1], size_t n) {
 
 // qc = qsort comparator
 
-int qc_chr_cmp(const void *a, const void *b) {
-  return memcmp(a, b, 1);
+// a word's tiles, ascending, by insertion: a word has few.
+static inline void sort_tiles(uint8_t tiles[], uint32_t len) {
+  for (uint32_t i = 1; i < len; ++i) {
+    uint8_t t = tiles[i];
+    uint32_t j = i;
+    for (; j > 0 && tiles[j - 1] > t; --j) tiles[j] = tiles[j - 1];
+    tiles[j] = t;
+  }
 }
 
 uint8_t *qc_ref_tiles_bytes; // temp global, do not free().
@@ -1295,7 +1301,7 @@ bool do_kwg(const char *in, const char *out, ParsedTile tileset_parse(uint8_t *)
       while (file_content[i] != '\n') ++i;
       ++i; // skip the newline
       if (cur_ofs_len.len > 0) {
-        if (alphagrams) qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
+        if (alphagrams) sort_tiles(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len);
         vecOfsLen_push(&wl.tiles_slices, &cur_ofs_len);
         cur_ofs_len.ofs += cur_ofs_len.len;
         cur_ofs_len.len = 0;
@@ -1462,7 +1468,7 @@ bool do_klv(const char *in, const char *out_path, ParsedTile tileset_parse(uint8
       fprintf(stderr, "record %zu: bad value\n", record_no);
       goto errored;
     }
-    qsort(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len, sizeof(uint8_t), qc_chr_cmp);
+    sort_tiles(wl.tiles_bytes.ptr + cur_ofs_len.ofs, cur_ofs_len.len);
     if (this_is_big_endian) {
       vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 3);
       vecByte_push(&wl.tiles_bytes, ((uint8_t *)&val) + 2);
