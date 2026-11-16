@@ -98,6 +98,51 @@ typedef struct {
 #undef VEC_ELT_T
 #undef VEC_ELT_NAME
 
+// a key to sort by and what it carries.
+typedef struct {
+  uint64_t key;
+  uint32_t index;
+  uint32_t aux;
+} Keyed;
+
+#define KEYED_DIGIT_BITS 8
+#define KEYED_NUM_DIGITS ((int)(sizeof(uint64_t) * CHAR_BIT / KEYED_DIGIT_BITS))
+#define KEYED_RADIX (1 << KEYED_DIGIT_BITS)
+
+// sort by key, ascending, keeping the order of equal keys: a radix sort, a
+// digit a pass from the lowest, skipping a digit all the keys share. scratch
+// holds as many.
+static void keyed_sort(Keyed v[static 1], Keyed scratch[static 1], size_t n) {
+  size_t (*counts)[KEYED_RADIX] = malloc_or_die(KEYED_NUM_DIGITS * sizeof(*counts));
+  memset(counts, 0, KEYED_NUM_DIGITS * sizeof(*counts));
+  for (size_t i = 0; i < n; ++i) {
+    uint64_t key = v[i].key;
+    for (int d = 0; d < KEYED_NUM_DIGITS; ++d) {
+      ++counts[d][(key >> (d * KEYED_DIGIT_BITS)) & (KEYED_RADIX - 1)];
+    }
+  }
+  Keyed *src = v;
+  Keyed *dst = scratch;
+  for (int d = 0; d < KEYED_NUM_DIGITS; ++d) {
+    size_t *count = counts[d];
+    if (n && count[(src[0].key >> (d * KEYED_DIGIT_BITS)) & (KEYED_RADIX - 1)] == n) continue;
+    size_t start = 0;
+    for (size_t b = 0; b < KEYED_RADIX; ++b) {
+      size_t c = count[b];
+      count[b] = start;
+      start += c;
+    }
+    for (size_t i = 0; i < n; ++i) {
+      dst[count[(src[i].key >> (d * KEYED_DIGIT_BITS)) & (KEYED_RADIX - 1)]++] = src[i];
+    }
+    Keyed *t = src;
+    src = dst;
+    dst = t;
+  }
+  if (src != v) memcpy(v, src, n * sizeof(Keyed));
+  free(counts);
+}
+
 // qc = qsort comparator
 
 int qc_chr_cmp(const void *a, const void *b) {
@@ -495,31 +540,39 @@ static inline void kwgc_states_defragger_defrag_cache_friendly(KwgcStatesDefragg
   // non-legacy mode already reserves the space.
 }
 
-uint32_t *qc_ref_num_ways; // temp global, do not free().
-uint32_t *qc_ref_to_end_lens; // temp global, do not free().
-int qc_build_experimental(const void *a, const void *b) {
-  uint32_t pa = *(uint32_t *)a;
-  uint32_t pb = *(uint32_t *)b;
-  uint32_t num_ways_a = qc_ref_num_ways[pa];
-  uint32_t num_ways_b = qc_ref_num_ways[pb];
-  if (num_ways_b < num_ways_a) return -1;
-  if (num_ways_b > num_ways_a) return 1;
-  uint32_t to_end_lens_a = qc_ref_to_end_lens[pa];
-  uint32_t to_end_lens_b = qc_ref_to_end_lens[pb];
-  if (to_end_lens_b < to_end_lens_a) return -1;
-  if (to_end_lens_b > to_end_lens_a) return 1;
-  if (pa < pb) return -1;
-  if (pa > pb) return 1;
-  return 0;
+// into idxs: every state but the sink, those used_in_dawg (if not NULL) says
+// first, then those with more ways, then longer to the end of their list,
+// then in index order. each is keyed by its ways and length as a number
+// that ascends in that order, so that the sort reads nothing else.
+static void kwgc_states_defragger_order_by_ways(KwgcStatesDefragger self[static 1], const uint32_t *num_ways, bool *used_in_dawg, uint32_t idxs[static 1]) {
+  uint32_t states_len_minus_one = self->states_len - 1;
+  Keyed *keyed = malloc_or_die((states_len_minus_one + 1) * sizeof(Keyed));
+  Keyed *scratch = malloc_or_die((states_len_minus_one + 1) * sizeof(Keyed));
+  for (uint32_t p = 1; p < self->states_len; ++p) {
+    keyed[p - 1] = (Keyed){
+        .key = ((uint64_t)~num_ways[p] << 32) | (uint32_t)~self->to_end_lens[p],
+        .index = p,
+        .aux = used_in_dawg && used_in_dawg[p],
+      };
+  }
+  keyed_sort(keyed, scratch, states_len_minus_one);
+  uint32_t num_idxs = 0;
+  if (used_in_dawg) {
+    for (uint32_t i = 0; i < states_len_minus_one; ++i) {
+      if (keyed[i].aux) idxs[num_idxs++] = keyed[i].index;
+    }
+  }
+  for (uint32_t i = 0; i < states_len_minus_one; ++i) {
+    if (!keyed[i].aux) idxs[num_idxs++] = keyed[i].index;
+  }
+  free(scratch);
+  free(keyed);
 }
 
-void kwgc_states_defragger_build_experimental(KwgcStatesDefragger self[static 1], uint32_t num_ways[static 1], uint32_t top_indexes[static 1]) {
+void kwgc_states_defragger_build_experimental(KwgcStatesDefragger self[static 1], const uint32_t *num_ways, uint32_t top_indexes[static 1]) {
   uint32_t states_len_minus_one = self->states_len - 1;
-  uint32_t *idxs = malloc_or_die(states_len_minus_one * sizeof(uint32_t));
-  for (uint32_t p = 0; p < states_len_minus_one; ++p) idxs[p] = p + 1;
-  qc_ref_num_ways = num_ways;
-  qc_ref_to_end_lens = self->to_end_lens;
-  qsort(idxs, states_len_minus_one, sizeof(uint32_t), qc_build_experimental);
+  uint32_t *idxs = malloc_or_die((states_len_minus_one + 1) * sizeof(uint32_t));
+  kwgc_states_defragger_order_by_ways(self, num_ways, NULL, idxs);
 
   KwgcStatesDefraggerExperimentalParams params = {
       .block_len = vecByte_new(),
@@ -549,33 +602,9 @@ void kwgc_states_defragger_build_experimental(KwgcStatesDefragger self[static 1]
   free(idxs);
 }
 
-bool *qc_ref_used_in_dawg; // temp global, do not free().
-int qc_build_wolges(const void *a, const void *b) {
-  uint32_t pa = *(uint32_t *)a;
-  uint32_t pb = *(uint32_t *)b;
-  bool used_in_dawg_a = qc_ref_used_in_dawg[pa];
-  bool used_in_dawg_b = qc_ref_used_in_dawg[pb];
-  if (used_in_dawg_b < used_in_dawg_a) return -1;
-  if (used_in_dawg_b > used_in_dawg_a) return 1;
-  uint32_t num_ways_a = qc_ref_num_ways[pa];
-  uint32_t num_ways_b = qc_ref_num_ways[pb];
-  if (num_ways_b < num_ways_a) return -1;
-  if (num_ways_b > num_ways_a) return 1;
-  uint32_t to_end_lens_a = qc_ref_to_end_lens[pa];
-  uint32_t to_end_lens_b = qc_ref_to_end_lens[pb];
-  if (to_end_lens_b < to_end_lens_a) return -1;
-  if (to_end_lens_b > to_end_lens_a) return 1;
-  if (pa < pb) return -1;
-  if (pa > pb) return 1;
-  return 0;
-}
-
-void kwgc_states_defragger_build_wolges(KwgcStatesDefragger self[static 1], uint32_t num_ways[static 1], bool is_gaddag, uint32_t dawg_start_state) {
+void kwgc_states_defragger_build_wolges(KwgcStatesDefragger self[static 1], const uint32_t *num_ways, bool is_gaddag, uint32_t dawg_start_state) {
   uint32_t states_len_minus_one = self->states_len - 1;
-  uint32_t *idxs = malloc_or_die(states_len_minus_one * sizeof(uint32_t));
-  for (uint32_t p = 0; p < states_len_minus_one; ++p) idxs[p] = p + 1;
-  qc_ref_num_ways = num_ways;
-  qc_ref_to_end_lens = self->to_end_lens;
+  uint32_t *idxs = malloc_or_die((states_len_minus_one + 1) * sizeof(uint32_t));
   if (is_gaddag) {
     // Check which nodes are used in dawg.
     bool *used_in_dawg = malloc_or_die(self->states_len * sizeof(bool));
@@ -583,12 +612,11 @@ void kwgc_states_defragger_build_wolges(KwgcStatesDefragger self[static 1], uint
     uint32_t p = 1;
     for (; p <= dawg_start_state; ++p) used_in_dawg[p] = true;
     for (; p < self->states_len; ++p) used_in_dawg[p] = used_in_dawg[self->states[p].next_index];
-    qc_ref_used_in_dawg = used_in_dawg;
-    qsort(idxs, states_len_minus_one, sizeof(uint32_t), qc_build_wolges);
+    kwgc_states_defragger_order_by_ways(self, num_ways, used_in_dawg, idxs);
     free(used_in_dawg);
   } else {
     // All nodes are dawg nodes.
-    qsort(idxs, states_len_minus_one, sizeof(uint32_t), qc_build_experimental);
+    kwgc_states_defragger_order_by_ways(self, num_ways, NULL, idxs);
   }
 
   KwgcStatesDefraggerExperimentalParams params = {
@@ -671,6 +699,7 @@ static bool kwgc_absorb(KwgcAbsorber self[static 1], uint32_t tails[static 1], u
   return false;
 }
 
+uint32_t *qc_ref_to_end_lens; // temp global, do not free().
 uint32_t *qc_ref_movable; // temp global, do not free().
 int qc_reorder_by_len(const void *a, const void *b) {
   uint32_t head_a = qc_ref_movable[*(uint32_t *)a];
