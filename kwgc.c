@@ -851,14 +851,18 @@ static void kwgc_reorder_states(KwgcStateMaker state_maker[static 1], bool is_ga
     }
     rarest_entries[i] = rarest_entry;
   }
-  free(postings_fill);
   vecU32_free(&list_entries);
   vecU32_free(&entry_counts);
   khmKwgcStateU32_free(&entry_indexes);
 
   // the longest list first, then the earliest: movable is in index order,
   // which a sort keyed by length alone keeps among equal lengths.
-  uint32_t *by_len = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  // the posting cursors are done; use their storage for the ordering.
+  uint32_t *by_len = postings_fill;
+  if (num_movable > num_entries) {
+    free(by_len);
+    by_len = malloc_or_die((num_movable + 1) * sizeof(uint32_t));
+  }
   {
     Keyed *keyed = malloc_or_die((num_movable + 1) * sizeof(Keyed));
     Keyed *scratch = malloc_or_die((num_movable + 1) * sizeof(Keyed));
